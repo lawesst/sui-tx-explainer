@@ -12,6 +12,8 @@ type Summary = {
   gasUsed: string;
   effectiveGasPriceWei: string;
   totalFeeWei: string;
+  l2FeeWei?: string;
+  l1FeeWei?: string;
 };
 
 type Action = {
@@ -393,6 +395,9 @@ function GasBreakdown({ summary }: GasBreakdownProps) {
   const totalEth = formatWeiToEth(summary.totalFeeWei);
   const gasUsedFormatted = formatLargeNumber(summary.gasUsed);
   const gasPriceFormatted = formatLargeNumber(summary.effectiveGasPriceWei);
+  
+  const l2FeeEth = summary.l2FeeWei ? formatWeiToEth(summary.l2FeeWei) : null;
+  const l1FeeEth = summary.l1FeeWei ? formatWeiToEth(summary.l1FeeWei) : null;
 
   return (
     <section className="space-y-3">
@@ -408,6 +413,32 @@ function GasBreakdown({ summary }: GasBreakdownProps) {
             {totalEth}
           </span>
         </div>
+        
+        {(l2FeeEth || l1FeeEth) && (
+          <div className="grid grid-cols-2 gap-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+            {l2FeeEth && (
+              <div>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  L2 execution fee
+                </p>
+                <p className="font-medium text-zinc-900 dark:text-zinc-50">
+                  {l2FeeEth}
+                </p>
+              </div>
+            )}
+            {l1FeeEth && (
+              <div>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  L1 calldata fee
+                </p>
+                <p className="font-medium text-zinc-900 dark:text-zinc-50">
+                  {l1FeeEth}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+        
         <div className="grid grid-cols-2 gap-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
           <div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">Gas used</p>

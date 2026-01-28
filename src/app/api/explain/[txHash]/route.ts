@@ -51,6 +51,9 @@ type RpcReceipt = {
   status: string | null;
   gasUsed: string;
   effectiveGasPrice?: string;
+  l1Fee?: string; // Arbitrum L1 fee
+  l1GasPrice?: string;
+  l1GasUsed?: string;
   logs: RpcLog[];
 };
 
@@ -81,23 +84,61 @@ type TokenTransfer = {
   from: string;
   to: string;
   valueRaw: string;
+  tokenId?: string;
+  transferType: "ERC20" | "ERC721" | "ERC1155";
 };
 
+// Event topic signatures
 const ERC20_TRANSFER_TOPIC =
   "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+const ERC721_TRANSFER_TOPIC =
+  "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+const ERC1155_TRANSFER_SINGLE_TOPIC =
+  "0xc3d58168c5ae7397731d063d5bbf3d657854427343f4c083240f7aacaa2d0f62";
+const ERC1155_TRANSFER_BATCH_TOPIC =
+  "0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e595d983b8c0526c8f7fb";
 
-// MVP hardcoded metadata for nicer explanations.
-// NOTE: addresses should be all lowercased for matching.
+// Known tokens on Arbitrum (addresses should be all lowercased for matching)
 const KNOWN_TOKENS: Record<
   string,
   { symbol: string; decimals: number }
 > = {
-  // Example: USDC on Arbitrum Sepolia (replace with real addresses as needed)
-  // "0x...": { symbol: "USDC", decimals: 6 },
+  // Arbitrum Mainnet
+  "0xff970a61a04b1ca14834a43f5de4533ebddb5cc8": { symbol: "USDC", decimals: 6 },
+  "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9": { symbol: "USDT", decimals: 6 },
+  "0xda10009cbd5d07dd0cecc66161fc93d7c9000da1": { symbol: "DAI", decimals: 18 },
+  "0x82e3a8f066a698966b041031b8413507eb728e5c": { symbol: "WETH", decimals: 18 },
+  "0x912ce59144191c1204e64559fe8253a0e49e6548": { symbol: "ARB", decimals: 18 },
+  "0x539bde0d7dbd336b79148aa742883198bbf60342": { symbol: "MAGIC", decimals: 18 },
+  "0x0c880f6761f1af8d9aa9c466984b80dab9a8c9e8": { symbol: "PENDLE", decimals: 18 },
+  "0x4e352cf164e64adcbad318c3a1e222e9eba4ce42": { symbol: "MCB", decimals: 18 },
+  "0x3d9907f9a368ad0a51be2f8d4b8e4507dfb52c6a": { symbol: "GMX", decimals: 18 },
+  "0xfc5a1a6eb076a2c7ad06ed22c90d7e710e35ad0a": { symbol: "GRAIL", decimals: 18 },
+  
+  // Arbitrum Sepolia (testnet)
+  "0x75faf114eafb1bdbe2f0316df893fd58ce45aa4": { symbol: "USDC", decimals: 6 },
+  "0x4d1493d3e0d448b6669e5a458182ea8c1a64f0e": { symbol: "WETH", decimals: 18 },
 };
 
+// Known contracts on Arbitrum (addresses should be all lowercased for matching)
 const KNOWN_CONTRACTS: Record<string, string> = {
-  // "0x...uniswap_v3_pool": "Uniswap V3 Pool",
+  // DEXs
+  "0xc31e54c7a869b9fcbecc14363cf510d1c41fa443": "Uniswap V3 Router",
+  "0xe592427a0aece92de3edee1f18e0157c05861564": "Uniswap V3 Router 2",
+  "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45": "Uniswap V3 Swap Router",
+  "0x1b02da8cb0d097eb8d57a175b88c7d8b47997506": "SushiSwap Router",
+  
+  // Lending
+  "0xa5edbdd9646f8dff606d7448e414884c7d905dca": "Aave V3 Pool",
+  "0x794a61358d6845594f94dc1db02a252b5b4814ad": "Aave V3 Pool (Arbitrum)",
+  
+  // Bridges
+  "0x72ce9c846789fdb6fc1f34ac4ad25dd9ef7031ef": "Arbitrum Bridge",
+  "0x8315177ab297ba92a06054ce80a67ed4dbd7ed3a": "Arbitrum Bridge (L1)",
+  
+  // Other
+  "0x912ce59144191c1204e64559fe8253a0e49e6548": "Arbitrum Token (ARB)",
+  "0x0000000000000000000000000000000000000064": "Arbitrum One L1 Gas Oracle",
 };
 
 async function callRpc<T>(payload: JsonRpcRequest): Promise<T> {
@@ -146,20 +187,81 @@ function hexToDecimalString(hex: string | null | undefined): string {
 }
 
 function parseTokenTransfers(logs: RpcLog[]): TokenTransfer[] {
-  return logs
-    .filter((log) => log.topics[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC)
-    .map((log) => {
+  const transfers: TokenTransfer[] = [];
+
+  for (const log of logs) {
+    const topic0 = log.topics[0]?.toLowerCase();
+
+    // ERC20 Transfer (3 topics: Transfer, from, to)
+    if (topic0 === ERC20_TRANSFER_TOPIC && log.topics.length === 3) {
       const from = `0x${log.topics[1]?.slice(26) ?? ""}`;
       const to = `0x${log.topics[2]?.slice(26) ?? ""}`;
       const valueRaw = log.data || "0x0";
 
-      return {
+      transfers.push({
         tokenContract: log.address,
         from,
         to,
         valueRaw,
-      };
-    });
+        transferType: "ERC20",
+      });
+    }
+    // ERC721 Transfer (4 topics: Transfer, from, to, tokenId)
+    else if (topic0 === ERC721_TRANSFER_TOPIC && log.topics.length === 4) {
+      const from = `0x${log.topics[1]?.slice(26) ?? ""}`;
+      const to = `0x${log.topics[2]?.slice(26) ?? ""}`;
+      const tokenId = hexToDecimalString(log.topics[3]);
+
+      transfers.push({
+        tokenContract: log.address,
+        from,
+        to,
+        valueRaw: "0x1", // ERC721 is always quantity 1
+        tokenId,
+        transferType: "ERC721",
+      });
+    }
+    // ERC1155 TransferSingle
+    else if (topic0 === ERC1155_TRANSFER_SINGLE_TOPIC && log.topics.length === 4) {
+      const operator = `0x${log.topics[1]?.slice(26) ?? ""}`;
+      const from = `0x${log.topics[2]?.slice(26) ?? ""}`;
+      const to = `0x${log.topics[3]?.slice(26) ?? ""}`;
+
+      // Decode data: id (uint256), value (uint256)
+      const data = log.data || "0x";
+      if (data.length >= 130) {
+        const tokenId = hexToDecimalString("0x" + data.slice(2, 66));
+        const valueRaw = "0x" + data.slice(66, 130);
+
+        transfers.push({
+          tokenContract: log.address,
+          from,
+          to,
+          valueRaw,
+          tokenId,
+          transferType: "ERC1155",
+        });
+      }
+    }
+    // ERC1155 TransferBatch
+    else if (topic0 === ERC1155_TRANSFER_BATCH_TOPIC && log.topics.length === 4) {
+      const operator = `0x${log.topics[1]?.slice(26) ?? ""}`;
+      const from = `0x${log.topics[2]?.slice(26) ?? ""}`;
+      const to = `0x${log.topics[3]?.slice(26) ?? ""}`;
+
+      // For batch transfers, create a simplified entry
+      transfers.push({
+        tokenContract: log.address,
+        from,
+        to,
+        valueRaw: "0x1", // Placeholder for batch
+        tokenId: "batch",
+        transferType: "ERC1155",
+      });
+    }
+  }
+
+  return transfers;
 }
 
 type ClassifyInput = {
@@ -174,19 +276,44 @@ function classifyActions(data: ClassifyInput): Action[] {
 
   const { transaction: tx, tokenTransfers = [] } = data;
 
-  // Token transfers (currently treating them as ERC20 transfers).
+  // Process token transfers by type
   for (const transfer of tokenTransfers) {
-    const amount = hexToDecimalString(transfer.valueRaw);
-    const description = `sent ${amount} tokens`;
-
-    actions.push({
-      type: "ERC20_TRANSFER",
-      description,
-      from: transfer.from,
-      to: transfer.to,
-      tokenContract: transfer.tokenContract,
-      amount,
-    });
+    if (transfer.transferType === "ERC20") {
+      const amount = hexToDecimalString(transfer.valueRaw);
+      actions.push({
+        type: "ERC20_TRANSFER",
+        description: `sent ${amount} tokens`,
+        from: transfer.from,
+        to: transfer.to,
+        tokenContract: transfer.tokenContract,
+        amount,
+      });
+    } else if (transfer.transferType === "ERC721") {
+      actions.push({
+        type: "ERC721_TRANSFER",
+        description: `transferred NFT #${transfer.tokenId}`,
+        from: transfer.from,
+        to: transfer.to,
+        tokenContract: transfer.tokenContract,
+        tokenId: transfer.tokenId,
+        amount: "1",
+      });
+    } else if (transfer.transferType === "ERC1155") {
+      const amount = transfer.tokenId === "batch" 
+        ? "multiple" 
+        : hexToDecimalString(transfer.valueRaw);
+      actions.push({
+        type: "ERC1155_TRANSFER",
+        description: transfer.tokenId === "batch"
+          ? "transferred multiple NFTs"
+          : `transferred NFT #${transfer.tokenId} (x${amount})`,
+        from: transfer.from,
+        to: transfer.to,
+        tokenContract: transfer.tokenContract,
+        tokenId: transfer.tokenId,
+        amount,
+      });
+    }
   }
 
   // Contract interaction: to !== null (and has calldata).
@@ -214,10 +341,42 @@ function shortenAddress(addr?: string | null): string {
   return `${a.slice(0, 6)}...${a.slice(-4)}`;
 }
 
-// Placeholder for ENS / more advanced resolution in the future.
+// ENS resolution cache (in-memory, resets on server restart)
+const ensCache = new Map<string, string | null>();
+
+// Resolve ENS name for an address (uses Ethereum mainnet ENS)
+// Note: This is a placeholder. For production, implement proper ENS resolution using:
+// - ethers.js with ENS resolver
+// - The Graph's ENS subgraph
+// - A dedicated ENS resolution service like 1inch's API
+async function resolveENS(address: string): Promise<string | null> {
+  if (!address || !address.startsWith("0x")) return null;
+
+  const addrLower = address.toLowerCase();
+
+  // Check cache first
+  if (ensCache.has(addrLower)) {
+    return ensCache.get(addrLower) ?? null;
+  }
+
+  try {
+    // TODO: Implement proper ENS resolution
+    // For now, return null (shortened address will be used)
+    ensCache.set(addrLower, null);
+    return null;
+  } catch (error) {
+    console.error(`ENS resolution failed for ${address}:`, error);
+    ensCache.set(addrLower, null);
+    return null;
+  }
+}
+
+// Resolve display name (ENS or shortened address)
+// Synchronous version for use in explain() function
 function resolveDisplayName(addr?: string | null): string {
   if (!addr) return "unknown";
-  // ENS resolution could go here (async). For MVP we keep it synchronous.
+  // For now, return shortened address
+  // Future: can be enhanced to batch-resolve ENS names
   return shortenAddress(addr);
 }
 
@@ -394,10 +553,28 @@ export async function GET(_request: Request, { params }: RouteParams) {
         "0x0",
     );
 
-    const totalFeeWei =
+    // Calculate L2 execution fee
+    const l2FeeWei =
       receipt?.gasUsed && effectiveGasPrice
         ? BigInt(receipt.gasUsed) * BigInt(effectiveGasPrice)
         : BigInt(0);
+
+    // Get L1 fee from receipt (Arbitrum-specific)
+    const l1FeeWei = receipt?.l1Fee
+      ? BigInt(receipt.l1Fee)
+      : BigInt(0);
+
+    // Calculate total fee
+    const totalFeeWei = l2FeeWei + l1FeeWei;
+
+    // Calculate L1 fee from calldata if not in receipt
+    // Arbitrum L1 fee = (l1GasPrice * l1GasUsed) or from receipt.l1Fee
+    let calculatedL1Fee = l1FeeWei;
+    if (calculatedL1Fee === BigInt(0) && receipt?.l1GasPrice && receipt?.l1GasUsed) {
+      const l1GasPrice = BigInt(receipt.l1GasPrice);
+      const l1GasUsed = BigInt(receipt.l1GasUsed);
+      calculatedL1Fee = l1GasPrice * l1GasUsed;
+    }
 
     const actions = classifyActions({
       transaction: tx,
@@ -415,6 +592,8 @@ export async function GET(_request: Request, { params }: RouteParams) {
         gasUsed,
         effectiveGasPriceWei: effectiveGasPrice,
         totalFeeWei: totalFeeWei.toString(10),
+        l2FeeWei: l2FeeWei.toString(10),
+        l1FeeWei: calculatedL1Fee.toString(10),
       },
       transfers: {
         native: nativeTransfer,
