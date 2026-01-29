@@ -246,14 +246,14 @@ function CopyableAddress({
   return (
     <button
       onClick={handleCopy}
-      className={`group inline-flex items-center gap-2 rounded-lg border border-slate-700/50 bg-slate-900/50 px-2.5 py-1 font-mono text-sm transition-all hover:border-indigo-500/50 hover:bg-indigo-500/10 ${colorClasses[variant]} ${className}`}
+      className={`group inline-flex items-center gap-1.5 rounded-lg border border-slate-700/50 bg-slate-900/50 px-2 py-0.5 font-mono text-[10px] transition-all hover:border-indigo-500/50 hover:bg-indigo-500/10 sm:gap-2 sm:px-2.5 sm:py-1 sm:text-sm ${colorClasses[variant]} ${className}`}
       title={`Click to copy: ${address}`}
     >
-      <span>{displayAddress}</span>
+      <span className="truncate max-w-[100px] sm:max-w-none">{displayAddress}</span>
       {copied ? (
-        <span className="text-xs text-emerald-400">✓</span>
+        <span className="text-[10px] text-emerald-400 shrink-0 sm:text-xs">✓</span>
       ) : (
-        <span className="text-xs text-slate-500 opacity-0 transition-opacity group-hover:opacity-100">📋</span>
+        <span className="text-[10px] text-slate-500 opacity-0 transition-opacity group-hover:opacity-100 shrink-0 sm:text-xs">📋</span>
       )}
     </button>
   );
@@ -285,14 +285,14 @@ function TxInput({ value, onChange, onSubmit, loading }: TxInputProps) {
       </div>
       <form
         onSubmit={handleSubmit}
-        className="group relative flex flex-col gap-4 rounded-2xl border border-slate-800/50 bg-gradient-to-br from-slate-800/40 to-slate-900/40 p-6 shadow-xl backdrop-blur-sm transition-all duration-300 hover:border-indigo-500/30 hover:shadow-2xl"
+        className="group relative flex flex-col gap-3 rounded-2xl border border-slate-800/50 bg-gradient-to-br from-slate-800/40 to-slate-900/40 p-4 shadow-xl backdrop-blur-sm transition-all duration-300 hover:border-indigo-500/30 hover:shadow-2xl sm:gap-4 sm:p-6"
       >
-        <label className="text-sm font-medium text-slate-300">
+        <label className="text-xs font-medium text-slate-300 sm:text-sm">
           Paste a Sui transaction digest or Sui Explorer link
         </label>
         <div className="relative">
           <input
-            className="w-full rounded-xl border border-slate-700/50 bg-slate-900/50 px-4 py-3.5 text-sm text-slate-100 placeholder:text-slate-500 shadow-inner outline-none ring-0 transition-all duration-200 focus:border-indigo-500/50 focus:bg-slate-900/70 focus:ring-2 focus:ring-indigo-500/20"
+            className="w-full rounded-xl border border-slate-700/50 bg-slate-900/50 px-3 py-2.5 text-xs text-slate-100 placeholder:text-slate-500 shadow-inner outline-none ring-0 transition-all duration-200 focus:border-indigo-500/50 focus:bg-slate-900/70 focus:ring-2 focus:ring-indigo-500/20 sm:px-4 sm:py-3.5 sm:text-sm"
             placeholder="GX67hXSgrpKY3u9YoTkRbMG6Zvov4zJzeWdqAhPGnEbo"
             value={value}
             onChange={(e) => onChange(e.target.value)}
@@ -300,33 +300,37 @@ function TxInput({ value, onChange, onSubmit, loading }: TxInputProps) {
           />
           {loading && (
             <div className="absolute right-3 top-1/2 -translate-y-1/2">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent sm:h-5 sm:w-5" />
             </div>
           )}
         </div>
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <button
             type="submit"
             disabled={loading || !value.trim()}
-            className="group/btn relative inline-flex items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-3 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:from-indigo-500 hover:to-purple-500 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:shadow-lg"
+            className="group/btn relative inline-flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-2.5 text-xs font-semibold text-white shadow-lg transition-all duration-200 hover:from-indigo-500 hover:to-purple-500 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:shadow-lg sm:w-auto sm:px-6 sm:py-3 sm:text-sm"
           >
             <span className="relative z-10 flex items-center gap-2">
               {loading ? (
                 <>
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  <div className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent sm:h-4 sm:w-4" />
                   <span>Analyzing...</span>
                 </>
               ) : (
                 <>
-                  <span>🔍</span>
-                  <span>Explain Transaction</span>
+                  <span className="text-sm sm:text-base">🔍</span>
+                  <span className="hidden sm:inline">Explain Transaction</span>
+                  <span className="sm:hidden">Explain</span>
                 </>
               )}
             </span>
             <div className="absolute inset-0 bg-gradient-to-r from-indigo-400 to-purple-400 opacity-0 transition-opacity duration-200 group-hover/btn:opacity-100" />
           </button>
-          <p className="text-xs text-slate-500">
+          <p className="hidden text-xs text-slate-500 sm:block">
             Secure • Read-only • No keys required
+          </p>
+          <p className="text-center text-[10px] text-slate-500 sm:hidden">
+            Secure & Read-only
           </p>
         </div>
       </form>
@@ -365,10 +369,10 @@ function ExplanationSummary({ data }: ExplanationSummaryProps) {
         </h2>
         <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
       </div>
-      <div className="space-y-4 rounded-2xl border border-slate-800/50 bg-gradient-to-br from-slate-800/40 to-slate-900/40 p-6 shadow-xl backdrop-blur-sm">
-        <div className="flex flex-wrap items-center gap-3">
+      <div className="space-y-3 rounded-xl border border-slate-800/50 bg-gradient-to-br from-slate-800/40 to-slate-900/40 p-4 shadow-xl backdrop-blur-sm sm:space-y-4 sm:rounded-2xl sm:p-6">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <span
-            className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold shadow-lg ${
+            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold shadow-lg sm:gap-2 sm:px-3 sm:py-1.5 sm:text-xs ${
               status === "success"
                 ? "bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-emerald-300 border border-emerald-500/30"
                 : status === "reverted"
@@ -376,30 +380,30 @@ function ExplanationSummary({ data }: ExplanationSummaryProps) {
                   : "bg-gradient-to-r from-slate-500/20 to-slate-600/20 text-slate-300 border border-slate-500/30"
             }`}
           >
-            <span className={`h-1.5 w-1.5 rounded-full ${
+            <span className={`h-1 w-1 rounded-full sm:h-1.5 sm:w-1.5 ${
               status === "success" ? "bg-emerald-400" : status === "reverted" ? "bg-red-400" : "bg-slate-400"
             }`} />
             {status.toUpperCase()}
           </span>
           <button
             onClick={handleCopyTxDigest}
-            className="group inline-flex items-center gap-2 rounded-lg border border-slate-700/50 bg-slate-900/50 px-3 py-1.5 font-mono text-xs text-slate-300 transition-all hover:border-indigo-500/50 hover:bg-indigo-500/10"
+            className="group inline-flex items-center gap-1.5 rounded-lg border border-slate-700/50 bg-slate-900/50 px-2 py-1 font-mono text-[10px] text-slate-300 transition-all hover:border-indigo-500/50 hover:bg-indigo-500/10 sm:gap-2 sm:px-3 sm:py-1.5 sm:text-xs"
             title={`Click to copy: ${txDigest}`}
           >
-            <code className="truncate">{shortenAddress(txDigest)}</code>
+            <code className="truncate max-w-[80px] sm:max-w-none">{shortenAddress(txDigest)}</code>
             {txDigestCopied ? (
-              <span className="text-emerald-400">✓</span>
+              <span className="text-emerald-400 text-[10px] sm:text-xs">✓</span>
             ) : (
-              <span className="text-slate-500 group-hover:text-indigo-400">📋</span>
+              <span className="text-slate-500 text-[10px] group-hover:text-indigo-400 sm:text-xs">📋</span>
             )}
           </button>
         </div>
-        <div className="rounded-lg bg-slate-900/30 p-4">
-          <p className="text-sm leading-relaxed text-slate-300">
+        <div className="rounded-lg bg-slate-900/30 p-3 sm:p-4">
+          <p className="text-xs leading-relaxed text-slate-300 sm:text-sm">
             Transaction executed by{" "}
             <CopyableAddress address={summary.from} variant="from" />.
             {summary.objectsCreated !== undefined && summary.objectsCreated > 0 && (
-              <span className="ml-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-medium text-emerald-300 border border-emerald-500/30">
+              <span className="ml-1.5 mt-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-300 border border-emerald-500/30 sm:ml-2 sm:mt-0 sm:gap-1.5 sm:px-2.5 sm:py-1 sm:text-xs">
                 <span>✨</span>
                 <span>{summary.objectsCreated} object{summary.objectsCreated !== 1 ? "s" : ""} created</span>
               </span>
@@ -458,10 +462,31 @@ function TransactionFlow({ data }: TransactionFlowProps) {
         </h2>
         <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
       </div>
-      <div className="space-y-4 rounded-2xl border border-slate-800/50 bg-gradient-to-br from-slate-800/40 to-slate-900/40 p-6 shadow-xl backdrop-blur-sm">
+      <div className="space-y-4 rounded-xl border border-slate-800/50 bg-gradient-to-br from-slate-800/40 to-slate-900/40 p-4 shadow-xl backdrop-blur-sm sm:rounded-2xl sm:p-6">
         {flows.map((flow, idx) => (
-          <div key={idx} className="flex items-center gap-4">
-            <div className="flex flex-1 items-center gap-3">
+          <div key={idx} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+            {/* Mobile: Vertical layout */}
+            <div className="flex flex-col gap-3 sm:hidden">
+              <div className="flex items-center gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-indigo-500/50 bg-gradient-to-br from-indigo-500/20 to-purple-500/20">
+                  <span className="text-xs">👤</span>
+                </div>
+                <CopyableAddress address={flow.from} variant="from" className="text-xs" />
+              </div>
+              <div className="flex items-center justify-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-2">
+                <span className="text-base">↓</span>
+                <span className="text-xs font-medium text-indigo-300">{flow.label}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-purple-500/50 bg-gradient-to-br from-purple-500/20 to-pink-500/20">
+                  <span className="text-xs">👤</span>
+                </div>
+                <CopyableAddress address={flow.to} variant="to" className="text-xs" />
+              </div>
+            </div>
+            
+            {/* Desktop: Horizontal layout */}
+            <div className="hidden flex-1 items-center gap-3 sm:flex">
               <div className="flex flex-col items-center gap-1">
                 <div className="h-10 w-10 rounded-full border-2 border-indigo-500/50 bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center">
                   <span className="text-xs">👤</span>
@@ -527,41 +552,41 @@ function TransactionMetadata({ data }: TransactionMetadataProps) {
         </h2>
         <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
       </div>
-      <div className="grid grid-cols-1 gap-4 rounded-2xl border border-slate-800/50 bg-gradient-to-br from-slate-800/40 to-slate-900/40 p-6 shadow-xl backdrop-blur-sm sm:grid-cols-2">
-        <div className="group rounded-xl border border-slate-700/30 bg-slate-900/30 p-4 transition-all hover:border-indigo-500/30 hover:bg-slate-900/50">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+      <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-800/50 bg-gradient-to-br from-slate-800/40 to-slate-900/40 p-4 shadow-xl backdrop-blur-sm sm:grid-cols-2 sm:gap-4 sm:rounded-2xl sm:p-6">
+        <div className="group rounded-lg border border-slate-700/30 bg-slate-900/30 p-3 transition-all hover:border-indigo-500/30 hover:bg-slate-900/50 sm:rounded-xl sm:p-4">
+          <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 sm:mb-2 sm:text-xs">
             Transaction Type
           </p>
-          <p className="text-sm font-semibold text-slate-200">
+          <p className="text-xs font-semibold text-slate-200 break-words sm:text-sm">
             {data.transactionType || "Unknown"}
           </p>
         </div>
-        <div className="group rounded-xl border border-slate-700/30 bg-slate-900/30 p-4 transition-all hover:border-indigo-500/30 hover:bg-slate-900/50">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Digest</p>
-          <p className="font-mono text-xs text-slate-300">
+        <div className="group rounded-lg border border-slate-700/30 bg-slate-900/30 p-3 transition-all hover:border-indigo-500/30 hover:bg-slate-900/50 sm:rounded-xl sm:p-4">
+          <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 sm:mb-2 sm:text-xs">Digest</p>
+          <p className="font-mono text-[10px] text-slate-300 break-all sm:text-xs">
             {shortenAddress(data.txDigest)}
           </p>
         </div>
         {data.checkpointSeq && (
-          <div className="group rounded-xl border border-slate-700/30 bg-slate-900/30 p-4 transition-all hover:border-indigo-500/30 hover:bg-slate-900/50">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+          <div className="group rounded-lg border border-slate-700/30 bg-slate-900/30 p-3 transition-all hover:border-indigo-500/30 hover:bg-slate-900/50 sm:rounded-xl sm:p-4">
+            <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 sm:mb-2 sm:text-xs">
               Checkpoint Seq. Number
             </p>
-            <p className="text-sm font-semibold text-slate-200">
+            <p className="text-xs font-semibold text-slate-200 break-words sm:text-sm">
               {formatLargeNumber(data.checkpointSeq)}
             </p>
           </div>
         )}
         {data.timestamp && (
-          <div className="group rounded-xl border border-slate-700/30 bg-slate-900/30 p-4 transition-all hover:border-indigo-500/30 hover:bg-slate-900/50">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Timestamp</p>
-            <p className="text-sm font-semibold text-slate-200">
+          <div className="group rounded-lg border border-slate-700/30 bg-slate-900/30 p-3 transition-all hover:border-indigo-500/30 hover:bg-slate-900/50 sm:rounded-xl sm:p-4">
+            <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 sm:mb-2 sm:text-xs">Timestamp</p>
+            <p className="text-xs font-semibold text-slate-200 break-words sm:text-sm">
               {formatDate(data.timestamp)}
             </p>
           </div>
         )}
-        <div className="group rounded-xl border border-slate-700/30 bg-slate-900/30 p-4 transition-all hover:border-indigo-500/30 hover:bg-slate-900/50 sm:col-span-2">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Sender</p>
+        <div className="group rounded-lg border border-slate-700/30 bg-slate-900/30 p-3 transition-all hover:border-indigo-500/30 hover:bg-slate-900/50 sm:col-span-2 sm:rounded-xl sm:p-4">
+          <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 sm:mb-2 sm:text-xs">Sender</p>
           <div className="mt-1">
             <CopyableAddress address={data.summary.from} variant="from" />
           </div>
@@ -650,7 +675,7 @@ function ActionList({ explanations, actions }: ActionListProps) {
         </h2>
         <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
       </div>
-      <ol className="space-y-3 rounded-2xl border border-slate-800/50 bg-gradient-to-br from-slate-800/40 to-slate-900/40 p-6 shadow-xl backdrop-blur-sm">
+      <ol className="space-y-2 rounded-xl border border-slate-800/50 bg-gradient-to-br from-slate-800/40 to-slate-900/40 p-4 shadow-xl backdrop-blur-sm sm:space-y-3 sm:rounded-2xl sm:p-6">
         {explanations.map((line, idx) => {
           const action = actions?.[idx];
           const icon = getTokenIcon(action?.type, action?.tokenContract);
@@ -658,15 +683,15 @@ function ActionList({ explanations, actions }: ActionListProps) {
           return (
             <li
               key={idx}
-              className="group flex items-start gap-4 rounded-xl border border-slate-700/30 bg-slate-900/30 p-4 text-sm text-slate-300 transition-all hover:border-indigo-500/30 hover:bg-slate-900/50"
+              className="group flex items-start gap-2.5 rounded-lg border border-slate-700/30 bg-slate-900/30 p-3 text-xs text-slate-300 transition-all hover:border-indigo-500/30 hover:bg-slate-900/50 sm:gap-4 sm:rounded-xl sm:p-4 sm:text-sm"
             >
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 text-xs font-bold text-indigo-300 shadow-lg">
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-indigo-500/20 to-purple-500/20 text-[10px] font-bold text-indigo-300 shadow-lg sm:h-7 sm:w-7 sm:rounded-lg sm:text-xs">
                 {idx + 1}
               </div>
-              <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center text-lg">
+              <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center text-sm sm:mt-0 sm:h-6 sm:w-6 sm:text-lg">
                 {icon}
               </div>
-              <span className="flex-1 leading-relaxed">{renderExplanation(line, action)}</span>
+              <span className="flex-1 break-words leading-relaxed">{renderExplanation(line, action)}</span>
             </li>
           );
         })}
@@ -696,38 +721,38 @@ function GasBreakdown({ summary }: GasBreakdownProps) {
         </h2>
         <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
       </div>
-      <div className="space-y-4 rounded-2xl border border-slate-800/50 bg-gradient-to-br from-slate-800/40 to-slate-900/40 p-6 shadow-xl backdrop-blur-sm">
-        <div className="flex items-center justify-between rounded-xl border border-indigo-500/20 bg-gradient-to-r from-indigo-500/10 to-purple-500/10 p-4">
-          <span className="text-sm font-medium text-slate-300">
+      <div className="space-y-3 rounded-xl border border-slate-800/50 bg-gradient-to-br from-slate-800/40 to-slate-900/40 p-4 shadow-xl backdrop-blur-sm sm:space-y-4 sm:rounded-2xl sm:p-6">
+        <div className="flex items-center justify-between rounded-lg border border-indigo-500/20 bg-gradient-to-r from-indigo-500/10 to-purple-500/10 p-3 sm:rounded-xl sm:p-4">
+          <span className="text-xs font-medium text-slate-300 sm:text-sm">
             Total Gas Cost
           </span>
-          <span className="text-lg font-bold text-indigo-300">
+          <span className="text-base font-bold text-indigo-300 sm:text-lg">
             {totalSui}
           </span>
         </div>
         
-        <div className="grid grid-cols-3 gap-4 border-t border-slate-700/50 pt-4">
-          <div className="group rounded-xl border border-slate-700/30 bg-slate-900/30 p-4 text-center transition-all hover:border-indigo-500/30 hover:bg-slate-900/50">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+        <div className="grid grid-cols-1 gap-3 border-t border-slate-700/50 pt-3 sm:grid-cols-3 sm:gap-4 sm:pt-4">
+          <div className="group rounded-lg border border-slate-700/30 bg-slate-900/30 p-3 text-center transition-all hover:border-indigo-500/30 hover:bg-slate-900/50 sm:rounded-xl sm:p-4">
+            <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 sm:mb-2 sm:text-xs">
               Computation
             </p>
-            <p className="text-sm font-semibold text-slate-200">
+            <p className="text-xs font-semibold text-slate-200 sm:text-sm">
               {computationCost}
             </p>
           </div>
-          <div className="group rounded-xl border border-slate-700/30 bg-slate-900/30 p-4 text-center transition-all hover:border-indigo-500/30 hover:bg-slate-900/50">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+          <div className="group rounded-lg border border-slate-700/30 bg-slate-900/30 p-3 text-center transition-all hover:border-indigo-500/30 hover:bg-slate-900/50 sm:rounded-xl sm:p-4">
+            <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 sm:mb-2 sm:text-xs">
               Storage
             </p>
-            <p className="text-sm font-semibold text-slate-200">
+            <p className="text-xs font-semibold text-slate-200 sm:text-sm">
               {storageCost}
             </p>
           </div>
-          <div className="group rounded-xl border border-slate-700/30 bg-slate-900/30 p-4 text-center transition-all hover:border-indigo-500/30 hover:bg-slate-900/50">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+          <div className="group rounded-lg border border-slate-700/30 bg-slate-900/30 p-3 text-center transition-all hover:border-indigo-500/30 hover:bg-slate-900/50 sm:rounded-xl sm:p-4">
+            <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 sm:mb-2 sm:text-xs">
               Storage Rebate
             </p>
-            <p className="text-sm font-semibold text-emerald-300">
+            <p className="text-xs font-semibold text-emerald-300 sm:text-sm">
               -{storageRebate}
             </p>
           </div>
@@ -808,7 +833,7 @@ function HomeContent() {
   }, [result]);
 
   return (
-    <div className="relative flex min-h-screen items-start justify-center bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950 px-4 py-12 font-sans">
+    <div className="relative flex min-h-screen items-start justify-center overflow-x-hidden bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950 px-3 py-6 font-sans sm:px-4 sm:py-12">
       {/* Animated background gradients */}
       <div className="pointer-events-none fixed inset-0 z-0">
         <div className="absolute inset-x-0 top-0 h-96 bg-gradient-to-b from-indigo-500/20 via-purple-500/10 to-transparent" />
@@ -816,20 +841,20 @@ function HomeContent() {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(99,102,241,0.1),transparent_70%)]" />
       </div>
       
-      <main className="relative z-10 flex w-full max-w-5xl flex-col gap-8 rounded-3xl border border-slate-800/50 bg-slate-900/40 p-8 shadow-2xl backdrop-blur-2xl transition-all duration-300 hover:border-slate-700/50 sm:p-10">
-        <header className="space-y-4">
-          <div className="inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-gradient-to-r from-indigo-500/10 to-purple-500/10 px-4 py-1.5 text-xs font-medium text-indigo-200 shadow-lg backdrop-blur-sm">
+      <main className="relative z-10 flex w-full max-w-5xl flex-col gap-6 overflow-x-hidden rounded-2xl border border-slate-800/50 bg-slate-900/40 p-4 shadow-2xl backdrop-blur-2xl transition-all duration-300 hover:border-slate-700/50 sm:rounded-3xl sm:gap-8 sm:p-8 lg:p-10">
+        <header className="space-y-3 sm:space-y-4">
+          <div className="inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-gradient-to-r from-indigo-500/10 to-purple-500/10 px-3 py-1 text-xs font-medium text-indigo-200 shadow-lg backdrop-blur-sm sm:px-4 sm:py-1.5">
             <span className="relative flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
             </span>
             <span>Sui Mainnet</span>
           </div>
-          <div className="space-y-2">
-            <h1 className="bg-gradient-to-r from-slate-50 via-indigo-100 to-slate-50 bg-clip-text text-4xl font-bold tracking-tight text-transparent sm:text-5xl">
+          <div className="space-y-1.5 sm:space-y-2">
+            <h1 className="bg-gradient-to-r from-slate-50 via-indigo-100 to-slate-50 bg-clip-text text-2xl font-bold tracking-tight text-transparent sm:text-4xl lg:text-5xl">
               Sui Transaction Explainer
             </h1>
-            <p className="max-w-2xl text-sm leading-relaxed text-slate-400">
+            <p className="text-xs leading-relaxed text-slate-400 sm:text-sm sm:max-w-2xl">
               Decode Sui Mainnet transactions with human-readable explanations. 
               Understand coin transfers, object movements, and gas costs at a glance.
             </p>
@@ -844,44 +869,44 @@ function HomeContent() {
         />
 
         {error && (
-          <div className="animate-in fade-in slide-in-from-top-2 rounded-2xl border border-red-500/30 bg-gradient-to-br from-red-950/40 to-red-900/20 p-5 text-sm text-red-200 shadow-lg backdrop-blur-sm">
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-500/20">
-                <span className="text-red-400">⚠</span>
+          <div className="animate-in fade-in slide-in-from-top-2 rounded-xl border border-red-500/30 bg-gradient-to-br from-red-950/40 to-red-900/20 p-4 text-xs text-red-200 shadow-lg backdrop-blur-sm sm:rounded-2xl sm:p-5 sm:text-sm">
+            <div className="flex items-start gap-2 sm:gap-3">
+              <div className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-red-500/20 sm:h-5 sm:w-5">
+                <span className="text-sm text-red-400 sm:text-base">⚠</span>
               </div>
-              <div className="flex-1">
-                <p className="font-medium text-red-100">{error}</p>
+              <div className="flex-1 min-w-0">
+                <p className="break-words font-medium text-red-100">{error}</p>
               </div>
             </div>
           </div>
         )}
 
         {result && (
-          <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-4 rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-indigo-950/30 to-purple-950/20 p-5 shadow-xl backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/20">
-                <span className="text-xl">🔗</span>
+          <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-3 rounded-xl border border-indigo-500/20 bg-gradient-to-br from-indigo-950/30 to-purple-950/20 p-4 shadow-xl backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:rounded-2xl sm:p-5">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-500/20 sm:h-10 sm:w-10 sm:rounded-xl">
+                <span className="text-base sm:text-xl">🔗</span>
               </div>
-              <div>
-                <p className="text-xs font-medium text-slate-400">Share this explanation</p>
-                <code className="mt-1 block rounded-lg bg-slate-900/50 px-3 py-1.5 text-xs font-mono text-slate-300">
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-medium text-slate-400 sm:text-xs">Share this explanation</p>
+                <code className="mt-1 block truncate rounded-lg bg-slate-900/50 px-2 py-1 text-[10px] font-mono text-slate-300 sm:px-3 sm:py-1.5 sm:text-xs">
                   ?tx={result.txDigest.slice(0, 12)}...
                 </code>
               </div>
             </div>
             <button
               onClick={handleShare}
-              className="group relative inline-flex items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:from-indigo-500 hover:to-purple-500 hover:shadow-xl"
+              className="group relative inline-flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-2 text-xs font-semibold text-white shadow-lg transition-all duration-200 hover:from-indigo-500 hover:to-purple-500 hover:shadow-xl sm:w-auto sm:px-5 sm:py-2.5 sm:text-sm"
             >
               <span className="relative z-10 flex items-center gap-2">
                 {copied ? (
                   <>
-                    <span className="text-base">✓</span>
+                    <span className="text-sm sm:text-base">✓</span>
                     <span>Copied!</span>
                   </>
                 ) : (
                   <>
-                    <span>📋</span>
+                    <span className="text-sm sm:text-base">📋</span>
                     <span>Copy Link</span>
                   </>
                 )}
@@ -899,14 +924,14 @@ function HomeContent() {
         />
         <GasBreakdown summary={result?.summary ?? null} />
 
-        <footer className="mt-8 flex flex-col items-center justify-between gap-4 border-t border-slate-800/50 pt-6 text-xs text-slate-500 sm:flex-row">
-          <span className="text-center sm:text-left">
+        <footer className="mt-6 flex flex-col items-center justify-between gap-3 border-t border-slate-800/50 pt-4 text-[10px] text-slate-500 sm:mt-8 sm:flex-row sm:gap-4 sm:pt-6 sm:text-xs">
+          <span className="text-center text-xs sm:text-left sm:text-xs">
             Explain another transaction by pasting a new digest above.
           </span>
-          <span className="flex items-center gap-2">
-            <span className="relative flex h-2 w-2">
+          <span className="flex items-center gap-1.5 sm:gap-2">
+            <span className="relative flex h-1.5 w-1.5 sm:h-2 sm:w-2">
               <span className="absolute inline-flex h-full w-full animate-pulse rounded-full bg-indigo-400 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-indigo-400" />
+              <span className="relative inline-flex h-full w-full rounded-full bg-indigo-400" />
             </span>
             <span className="font-medium">Optimized for Sui</span>
           </span>
