@@ -24,6 +24,7 @@ type Action = {
   coinType?: string;
   amount?: string;
   objectId?: string;
+  tokenContract?: string;
 };
 
 type ExplanationResponse = {

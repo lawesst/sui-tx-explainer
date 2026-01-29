@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
 
 type RouteParams = {
-  params: {
+  params: Promise<{
     txHash: string;
-  };
+  }>;
 };
 
 // Sui transaction types
@@ -44,11 +44,20 @@ type SuiTransactionBlock = {
     sender?: string;
     parsedJson?: unknown;
   }>;
+  objectChanges?: Array<{
+    type?: string;
+    objectId?: string;
+    objectType?: string;
+    sender?: string;
+    recipient?: string;
+  }>;
 };
 
 type ActionType =
   | "COIN_TRANSFER"
   | "NFT_TRANSFER"
+  | "OBJECT_CREATED"
+  | "MOVE_CALL"
   | "CONTRACT_CALL"
   | "STAKING"
   | "SWAP";
@@ -81,7 +90,6 @@ const KNOWN_COINS: Record<string, { symbol: string; decimals: number }> = {
     symbol: "USDT",
     decimals: 6,
   },
-  "0x2::sui::SUI": { symbol: "SUI", decimals: 9 },
 };
 
 // Known contracts/packages on Sui
@@ -147,7 +155,7 @@ function resolveDisplayName(addr?: string | null): string {
 
 // Parse coin transfers from Sui transaction events
 function parseCoinTransfers(
-  events: SuiTransactionBlock["events"],
+  events: SuiTransactionBlock["events"] | null | undefined,
 ): CoinTransfer[] {
   const transfers: CoinTransfer[] = [];
 
@@ -341,7 +349,7 @@ export function explain(action: Action): string {
 }
 
 export async function GET(_request: Request, { params }: RouteParams) {
-  const resolvedParams = await Promise.resolve(params);
+  const resolvedParams = await params;
   const { txHash: rawTxHash } = resolvedParams;
 
   // Extract and validate transaction digest
@@ -421,15 +429,16 @@ export async function GET(_request: Request, { params }: RouteParams) {
           : "pending_or_unknown";
 
     // Sui transaction structure might be different - try multiple paths
+    const txData = txBlock.transaction?.data as any;
     const sender = 
-      txBlock.transaction?.data?.transaction?.sender ||
-      txBlock.transaction?.data?.sender ||
+      txData?.transaction?.sender ||
+      txData?.sender ||
       (txBlock as any).sender ||
       "unknown";
     
     // Extract transaction type
     const transactionKind = 
-      txBlock.transaction?.data?.transaction?.kind ||
+      txData?.transaction?.kind ||
       (txBlock as any).transaction?.kind ||
       "Unknown";
     
@@ -439,7 +448,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
       (txBlock as any).checkpoint ||
       (txBlock as any).checkpointSeq ||
       (txBlock as any).checkpointSequenceNumber ||
-      txBlock.effects?.checkpoint ||
+      (txBlock.effects as any)?.checkpoint ||
       null;
     
     // Extract timestamp (Sui uses timestampMs)
@@ -447,7 +456,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     const timestampMs = 
       (txBlock as any).timestampMs ||
       (txBlock as any).timestamp ||
-      txBlock.effects?.timestampMs ||
+      (txBlock.effects as any)?.timestampMs ||
       null;
     
     // Format timestamp
@@ -461,7 +470,11 @@ export async function GET(_request: Request, { params }: RouteParams) {
       }
     }
       
-    const gasUsed = txBlock.effects?.gasUsed || {};
+    const gasUsed = (txBlock.effects?.gasUsed || {}) as {
+      computationCost?: string;
+      storageCost?: string;
+      storageRebate?: string;
+    };
     const computationCost = hexToDecimalString(gasUsed.computationCost);
     const storageCost = hexToDecimalString(gasUsed.storageCost);
     const storageRebate = hexToDecimalString(gasUsed.storageRebate);
