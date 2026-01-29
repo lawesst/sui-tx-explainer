@@ -1,23 +1,24 @@
-# Arbitrum Transaction Explainer
+# Sui Transaction Explainer
 
-A user-friendly web application that translates Arbitrum transaction data into clear, human-readable explanations. Instead of raw logs and hexadecimal data, users see plain-English summaries of on-chain activity.
+A user-friendly web application that translates Sui transaction data into clear, human-readable explanations. Instead of raw transaction blocks and object data, users see plain-English summaries of on-chain activity.
 
 ## Overview
 
-The Arbitrum Transaction Explainer converts low-level EVM execution data into semantic actions, making blockchain transactions accessible to users, developers, educators, and DAO reviewers. The application fetches transaction data from Arbitrum networks and presents it in an intuitive, easy-to-understand format.
+The Sui Transaction Explainer converts low-level Move execution data into semantic actions, making blockchain transactions accessible to users, developers, educators, and DAO reviewers. The application fetches transaction data from Sui networks and presents it in an intuitive, easy-to-understand format.
 
 ## Features
 
 - **Human-Readable Explanations**: Converts raw transaction data into plain English
 - **Transaction Classification**: Automatically identifies and categorizes actions:
-  - ERC-20 token transfers
-  - ERC-721 NFT transfers
-  - ERC-1155 multi-token transfers
-  - Contract interactions
-- **Gas Cost Breakdown**: Displays L2 execution costs and L1 calldata fees
+  - Coin transfers (SUI and other coin types)
+  - NFT transfers
+  - Object transfers
+  - Contract calls
+  - Staking operations
+- **Gas Cost Breakdown**: Displays computation costs, storage costs, and storage rebates
 - **Copyable Addresses**: Click any address to copy it to clipboard
 - **Shareable Links**: Generate shareable URLs for transaction explanations
-- **Arbitrum Theme**: Styled with Arbitrum's brand colors and design language
+- **Sui Theme**: Styled with modern design language
 - **Responsive Design**: Works seamlessly on desktop and mobile devices
 
 ## Tech Stack
@@ -25,22 +26,22 @@ The Arbitrum Transaction Explainer converts low-level EVM execution data into se
 - **Framework**: Next.js 16 (App Router)
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS
-- **Blockchain**: Arbitrum (Sepolia testnet or Mainnet)
-- **RPC Provider**: Alchemy
+- **Blockchain**: Sui Mainnet
+- **SDK**: @mysten/sui
 
 ## Getting Started
 
 ### Prerequisites
 
 - Node.js 18+ and npm
-- An Alchemy API key (for Arbitrum RPC access)
+- Sui Mainnet RPC endpoint (optional, defaults to public mainnet RPC)
 
 ### Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/lawesst/arbitrum-tx-explainer.git
-cd arbitrum-tx-explainer
+git clone https://github.com/lawesst/sui-tx-explainer.git
+cd sui-tx-explainer
 ```
 
 2. Install dependencies:
@@ -48,16 +49,12 @@ cd arbitrum-tx-explainer
 npm install
 ```
 
-3. Create a `.env.local` file in the project root:
+3. Create a `.env.local` file in the project root (optional):
 ```bash
-ALCHEMY_API_KEY=your_alchemy_api_key
-ARBITRUM_RPC=https://arb-sepolia.g.alchemy.com/v2/your_alchemy_api_key
+SUI_RPC=https://fullnode.mainnet.sui.io:443
 ```
 
-For Arbitrum Mainnet, use:
-```bash
-ARBITRUM_RPC=https://arb-mainnet.g.alchemy.com/v2/your_alchemy_api_key
-```
+**Note:** This application is configured for **Sui Mainnet** by default. If not provided, it will use the public Sui Mainnet RPC endpoint. For custom RPC providers (like Alchemy), set your mainnet endpoint in `.env.local`.
 
 4. Start the development server:
 ```bash
@@ -68,18 +65,18 @@ npm run dev
 
 ## Usage
 
-1. Paste an Arbitrum transaction hash (or Arbiscan link) into the input field
+1. Paste a Sui transaction digest (or Sui Explorer link) into the input field
 2. Click "Explain transaction" to fetch and analyze the transaction
 3. View the human-readable explanation, including:
    - Transaction status and summary
    - List of actions performed
-   - Gas cost breakdown
+   - Gas cost breakdown (computation, storage, rebate)
 4. Share the explanation using the generated shareable link
 
 ## Project Structure
 
 ```
-arbitrum-tx-explainer/
+sui-tx-explainer/
 ├── src/
 │   └── app/
 │       ├── api/
@@ -96,35 +93,34 @@ arbitrum-tx-explainer/
 
 ## API Endpoint
 
-### GET `/api/explain/[txHash]`
+### GET `/api/explain/[txDigest]`
 
-Fetches and explains an Arbitrum transaction.
+Fetches and explains a Sui transaction.
 
 **Parameters:**
-- `txHash` (path): The transaction hash (0x-prefixed hex string)
+- `txDigest` (path): The transaction digest (64-character hex string)
 
 **Response:**
 ```json
 {
-  "txHash": "0x...",
+  "txDigest": "...",
   "status": "success" | "reverted" | "pending_or_unknown",
   "summary": {
     "from": "0x...",
-    "to": "0x...",
-    "nativeValueWei": "...",
-    "gasUsed": "...",
-    "effectiveGasPriceWei": "...",
-    "totalFeeWei": "..."
+    "gasUsed": {
+      "computationCost": "...",
+      "storageCost": "...",
+      "storageRebate": "...",
+      "total": "..."
+    }
   },
   "transfers": {
-    "native": { "from": "0x...", "to": "0x...", "valueWei": "0x..." },
-    "tokens": [...]
+    "coins": [...]
   },
   "actions": [...],
-  "actionExplanations": ["Alice sent 250 USDC to Bob", ...],
+  "actionExplanations": ["Alice sent 10 SUI to Bob", ...],
   "raw": {
-    "transaction": {...},
-    "receipt": {...}
+    "transaction": {...}
   }
 }
 ```
@@ -133,12 +129,12 @@ Fetches and explains an Arbitrum transaction.
 
 ### Transaction Processing Flow
 
-1. **Validation**: Validates the transaction hash format
-2. **Data Fetching**: Retrieves transaction and receipt data via RPC calls
-3. **Transfer Parsing**: Extracts native ETH and token transfers from logs
-4. **Action Classification**: Classifies actions using rules-based logic (no AI)
+1. **Validation**: Validates the transaction digest format
+2. **Data Fetching**: Retrieves transaction block data via Sui RPC
+3. **Transfer Parsing**: Extracts coin transfers from transaction events
+4. **Action Classification**: Classifies actions using rules-based logic
 5. **Explanation Generation**: Generates human-readable explanations with:
-   - Token symbols and decimals
+   - Coin types and amounts
    - Known contract names
    - Address formatting
 
@@ -146,16 +142,17 @@ Fetches and explains an Arbitrum transaction.
 
 The explanation engine uses a rules-based approach to classify transactions:
 
-- **ERC-20 Transfers**: Detected via Transfer event logs
-- **ERC-721/ERC-1155 Transfers**: Identified by token transfer patterns
-- **Contract Calls**: Detected when `to` address is not null and contains calldata
+- **Coin Transfers**: Detected via Transfer events
+- **NFT Transfers**: Identified by object transfer patterns
+- **Contract Calls**: Detected from transaction kind
+- **Staking**: Identified by staking-specific operations
 
 ## Known Limitations
 
-- Token symbols require manual configuration in `KNOWN_TOKENS` mapping
+- Coin symbols require manual configuration in `KNOWN_COINS` mapping
 - Contract names require manual configuration in `KNOWN_CONTRACTS` mapping
+- Complex multi-object transactions may show simplified explanations
 - ENS resolution is not yet implemented (addresses shown as shortened)
-- Complex multi-hop transactions may show simplified explanations
 
 ## Development
 
@@ -180,7 +177,7 @@ The application can be deployed to any platform that supports Next.js:
 - **Netlify**: Supports Next.js with minimal configuration
 - **Self-hosted**: Run `npm run build` and `npm start`
 
-Ensure environment variables are configured in your deployment platform.
+Ensure environment variables are configured in your deployment platform if using custom RPC endpoints.
 
 ## Contributing
 
@@ -188,7 +185,7 @@ Contributions are welcome. Please ensure:
 
 1. Code follows existing patterns and conventions
 2. TypeScript types are properly defined
-3. UI components maintain the Arbitrum theme
+3. UI components maintain consistent styling
 4. New features include appropriate error handling
 
 ## License
@@ -197,4 +194,4 @@ This project is open source and available for use and modification.
 
 ## Acknowledgments
 
-Built for the Arbitrum ecosystem to improve transaction comprehension and accessibility.
+Built for the Sui ecosystem to improve transaction comprehension and accessibility.

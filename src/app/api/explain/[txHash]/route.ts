@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
 
 type RouteParams = {
   params: {
@@ -6,175 +7,94 @@ type RouteParams = {
   };
 };
 
-type JsonRpcRequest = {
-  jsonrpc: "2.0";
-  id: number;
-  method: string;
-  params: unknown[];
-};
-
-type JsonRpcError = {
-  code: number;
-  message: string;
-  data?: unknown;
-};
-
-type JsonRpcResponse<T> = {
-  jsonrpc: "2.0";
-  id: number;
-  result?: T;
-  error?: JsonRpcError;
-};
-
-type RpcTransaction = {
-  hash: string;
-  from: string;
-  to: string | null;
-  value: string;
-  input: string;
-  nonce: string;
-  gas: string;
-  gasPrice?: string;
-  maxFeePerGas?: string;
-  maxPriorityFeePerGas?: string;
-  blockNumber: string | null;
-};
-
-type RpcLog = {
-  address: string;
-  topics: string[];
-  data: string;
-};
-
-type RpcReceipt = {
-  transactionHash: string;
-  status: string | null;
-  gasUsed: string;
-  effectiveGasPrice?: string;
-  l1Fee?: string; // Arbitrum L1 fee
-  l1GasPrice?: string;
-  l1GasUsed?: string;
-  logs: RpcLog[];
+// Sui transaction types
+type SuiTransactionBlock = {
+  digest: string;
+  transaction?: {
+    data?: {
+      messageVersion?: string;
+      transaction?: {
+        kind?: string;
+        sender?: string;
+        gasData?: {
+          payment?: Array<{ objectId: string; version: string; digest: string }>;
+          owner?: string;
+          price?: string;
+          budget?: string;
+        };
+      };
+    };
+  };
+  effects?: {
+    status?: {
+      status?: string;
+      error?: string;
+    };
+    gasUsed?: {
+      computationCost?: string;
+      storageCost?: string;
+      storageRebate?: string;
+    };
+    transactionDigest?: string;
+  };
+  events?: Array<{
+    type?: string;
+    packageId?: string;
+    transactionModule?: string;
+    sender?: string;
+    parsedJson?: unknown;
+  }>;
 };
 
 type ActionType =
-  | "ERC20_TRANSFER"
-  | "ERC721_TRANSFER"
-  | "ERC1155_TRANSFER"
-  | "CONTRACT_CALL";
+  | "COIN_TRANSFER"
+  | "NFT_TRANSFER"
+  | "CONTRACT_CALL"
+  | "STAKING"
+  | "SWAP";
 
 export type Action = {
   type: ActionType;
   description: string;
   from?: string;
   to?: string | null;
-  tokenContract?: string;
-  tokenId?: string;
+  coinType?: string;
   amount?: string;
+  objectId?: string;
 };
 
-type NativeTransfer = {
-  from: string;
-  to: string | null;
-  valueWei: string;
-};
-
-type TokenTransfer = {
-  tokenContract: string;
+type CoinTransfer = {
+  coinType: string;
   from: string;
   to: string;
-  valueRaw: string;
-  tokenId?: string;
-  transferType: "ERC20" | "ERC721" | "ERC1155";
+  amount: string;
 };
 
-// Event topic signatures
-const ERC20_TRANSFER_TOPIC =
-  "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
-const ERC721_TRANSFER_TOPIC =
-  "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
-const ERC1155_TRANSFER_SINGLE_TOPIC =
-  "0xc3d58168c5ae7397731d063d5bbf3d657854427343f4c083240f7aacaa2d0f62";
-const ERC1155_TRANSFER_BATCH_TOPIC =
-  "0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e595d983b8c0526c8f7fb";
-
-// Known tokens on Arbitrum (addresses should be all lowercased for matching)
-const KNOWN_TOKENS: Record<
-  string,
-  { symbol: string; decimals: number }
-> = {
-  // Arbitrum Mainnet
-  "0xff970a61a04b1ca14834a43f5de4533ebddb5cc8": { symbol: "USDC", decimals: 6 },
-  "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9": { symbol: "USDT", decimals: 6 },
-  "0xda10009cbd5d07dd0cecc66161fc93d7c9000da1": { symbol: "DAI", decimals: 18 },
-  "0x82e3a8f066a698966b041031b8413507eb728e5c": { symbol: "WETH", decimals: 18 },
-  "0x912ce59144191c1204e64559fe8253a0e49e6548": { symbol: "ARB", decimals: 18 },
-  "0x539bde0d7dbd336b79148aa742883198bbf60342": { symbol: "MAGIC", decimals: 18 },
-  "0x0c880f6761f1af8d9aa9c466984b80dab9a8c9e8": { symbol: "PENDLE", decimals: 18 },
-  "0x4e352cf164e64adcbad318c3a1e222e9eba4ce42": { symbol: "MCB", decimals: 18 },
-  "0x3d9907f9a368ad0a51be2f8d4b8e4507dfb52c6a": { symbol: "GMX", decimals: 18 },
-  "0xfc5a1a6eb076a2c7ad06ed22c90d7e710e35ad0a": { symbol: "GRAIL", decimals: 18 },
-  
-  // Arbitrum Sepolia (testnet)
-  "0x75faf114eafb1bdbe2f0316df893fd58ce45aa4": { symbol: "USDC", decimals: 6 },
-  "0x4d1493d3e0d448b6669e5a458182ea8c1a64f0e": { symbol: "WETH", decimals: 18 },
+// Known coins on Sui (package::module::CoinType)
+const KNOWN_COINS: Record<string, { symbol: string; decimals: number }> = {
+  "0x2::sui::SUI": { symbol: "SUI", decimals: 9 },
+  "0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN": {
+    symbol: "USDC",
+    decimals: 6,
+  },
+  "0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN": {
+    symbol: "USDT",
+    decimals: 6,
+  },
+  "0x2::sui::SUI": { symbol: "SUI", decimals: 9 },
 };
 
-// Known contracts on Arbitrum (addresses should be all lowercased for matching)
+// Known contracts/packages on Sui
 const KNOWN_CONTRACTS: Record<string, string> = {
-  // DEXs
-  "0xc31e54c7a869b9fcbecc14363cf510d1c41fa443": "Uniswap V3 Router",
-  "0xe592427a0aece92de3edee1f18e0157c05861564": "Uniswap V3 Router 2",
-  "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45": "Uniswap V3 Swap Router",
-  "0x1b02da8cb0d097eb8d57a175b88c7d8b47997506": "SushiSwap Router",
-  
-  // Lending
-  "0xa5edbdd9646f8dff606d7448e414884c7d905dca": "Aave V3 Pool",
-  "0x794a61358d6845594f94dc1db02a252b5b4814ad": "Aave V3 Pool (Arbitrum)",
-  
-  // Bridges
-  "0x72ce9c846789fdb6fc1f34ac4ad25dd9ef7031ef": "Arbitrum Bridge",
-  "0x8315177ab297ba92a06054ce80a67ed4dbd7ed3a": "Arbitrum Bridge (L1)",
-  
-  // Other
-  "0x912ce59144191c1204e64559fe8253a0e49e6548": "Arbitrum Token (ARB)",
-  "0x0000000000000000000000000000000000000064": "Arbitrum One L1 Gas Oracle",
+  "0x2": "Sui Framework",
+  "0x3": "DeepBook",
+  "0x5": "Sui System",
 };
 
-async function callRpc<T>(payload: JsonRpcRequest): Promise<T> {
-  const rpcUrl = process.env.ARBITRUM_RPC;
-
-  if (!rpcUrl) {
-    throw new Error("ARBITRUM_RPC is not configured in the environment.");
-  }
-
-  const res = await fetch(rpcUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!res.ok) {
-    throw new Error(`RPC HTTP error: ${res.status} ${res.statusText}`);
-  }
-
-  const json = (await res.json()) as JsonRpcResponse<T>;
-
-  if (json.error) {
-    throw new Error(
-      `RPC error ${json.error.code}: ${json.error.message}${
-        json.error.data ? ` (${JSON.stringify(json.error.data)})` : ""
-      }`,
-    );
-  }
-
-  if (typeof json.result === "undefined") {
-    throw new Error("RPC response missing result");
-  }
-
-  return json.result;
+// Initialize Sui client
+function getSuiClient(network: "mainnet" | "testnet" | "devnet" = "mainnet"): SuiClient {
+  const rpcUrl = process.env.SUI_RPC || getFullnodeUrl(network);
+  return new SuiClient({ url: rpcUrl });
 }
 
 function hexToDecimalString(hex: string | null | undefined): string {
@@ -186,214 +106,22 @@ function hexToDecimalString(hex: string | null | undefined): string {
   }
 }
 
-function parseTokenTransfers(logs: RpcLog[]): TokenTransfer[] {
-  const transfers: TokenTransfer[] = [];
-
-  for (const log of logs) {
-    const topic0 = log.topics[0]?.toLowerCase();
-
-    // ERC20 Transfer (3 topics: Transfer, from, to)
-    if (topic0 === ERC20_TRANSFER_TOPIC && log.topics.length === 3) {
-      const from = `0x${log.topics[1]?.slice(26) ?? ""}`;
-      const to = `0x${log.topics[2]?.slice(26) ?? ""}`;
-      const valueRaw = log.data || "0x0";
-
-      transfers.push({
-        tokenContract: log.address,
-        from,
-        to,
-        valueRaw,
-        transferType: "ERC20",
-      });
-    }
-    // ERC721 Transfer (4 topics: Transfer, from, to, tokenId)
-    else if (topic0 === ERC721_TRANSFER_TOPIC && log.topics.length === 4) {
-      const from = `0x${log.topics[1]?.slice(26) ?? ""}`;
-      const to = `0x${log.topics[2]?.slice(26) ?? ""}`;
-      const tokenId = hexToDecimalString(log.topics[3]);
-
-      transfers.push({
-        tokenContract: log.address,
-        from,
-        to,
-        valueRaw: "0x1", // ERC721 is always quantity 1
-        tokenId,
-        transferType: "ERC721",
-      });
-    }
-    // ERC1155 TransferSingle
-    else if (topic0 === ERC1155_TRANSFER_SINGLE_TOPIC && log.topics.length === 4) {
-      const operator = `0x${log.topics[1]?.slice(26) ?? ""}`;
-      const from = `0x${log.topics[2]?.slice(26) ?? ""}`;
-      const to = `0x${log.topics[3]?.slice(26) ?? ""}`;
-
-      // Decode data: id (uint256), value (uint256)
-      const data = log.data || "0x";
-      if (data.length >= 130) {
-        const tokenId = hexToDecimalString("0x" + data.slice(2, 66));
-        const valueRaw = "0x" + data.slice(66, 130);
-
-        transfers.push({
-          tokenContract: log.address,
-          from,
-          to,
-          valueRaw,
-          tokenId,
-          transferType: "ERC1155",
-        });
-      }
-    }
-    // ERC1155 TransferBatch
-    else if (topic0 === ERC1155_TRANSFER_BATCH_TOPIC && log.topics.length === 4) {
-      const operator = `0x${log.topics[1]?.slice(26) ?? ""}`;
-      const from = `0x${log.topics[2]?.slice(26) ?? ""}`;
-      const to = `0x${log.topics[3]?.slice(26) ?? ""}`;
-
-      // For batch transfers, create a simplified entry
-      transfers.push({
-        tokenContract: log.address,
-        from,
-        to,
-        valueRaw: "0x1", // Placeholder for batch
-        tokenId: "batch",
-        transferType: "ERC1155",
-      });
-    }
-  }
-
-  return transfers;
-}
-
-type ClassifyInput = {
-  transaction: RpcTransaction;
-  receipt?: RpcReceipt | null;
-  tokenTransfers?: TokenTransfer[];
-};
-
-// MVP, rules-based classification (no AI).
-function classifyActions(data: ClassifyInput): Action[] {
-  const actions: Action[] = [];
-
-  const { transaction: tx, tokenTransfers = [] } = data;
-
-  // Process token transfers by type
-  for (const transfer of tokenTransfers) {
-    if (transfer.transferType === "ERC20") {
-      const amount = hexToDecimalString(transfer.valueRaw);
-      actions.push({
-        type: "ERC20_TRANSFER",
-        description: `sent ${amount} tokens`,
-        from: transfer.from,
-        to: transfer.to,
-        tokenContract: transfer.tokenContract,
-        amount,
-      });
-    } else if (transfer.transferType === "ERC721") {
-      actions.push({
-        type: "ERC721_TRANSFER",
-        description: `transferred NFT #${transfer.tokenId}`,
-        from: transfer.from,
-        to: transfer.to,
-        tokenContract: transfer.tokenContract,
-        tokenId: transfer.tokenId,
-        amount: "1",
-      });
-    } else if (transfer.transferType === "ERC1155") {
-      const amount = transfer.tokenId === "batch" 
-        ? "multiple" 
-        : hexToDecimalString(transfer.valueRaw);
-      actions.push({
-        type: "ERC1155_TRANSFER",
-        description: transfer.tokenId === "batch"
-          ? "transferred multiple NFTs"
-          : `transferred NFT #${transfer.tokenId} (x${amount})`,
-        from: transfer.from,
-        to: transfer.to,
-        tokenContract: transfer.tokenContract,
-        tokenId: transfer.tokenId,
-        amount,
-      });
-    }
-  }
-
-  // Contract interaction: to !== null (and has calldata).
-  if (tx.to !== null) {
-    const isContractCall = tx.input && tx.input !== "0x";
-
-    if (isContractCall) {
-      actions.push({
-        type: "CONTRACT_CALL",
-        description: `contract interaction with ${tx.to}`,
-        from: tx.from,
-        to: tx.to,
-      });
-    }
-  }
-
-  return actions;
-}
-
-// --- Explanation helpers ---
-
 function shortenAddress(addr?: string | null): string {
   if (!addr) return "unknown";
-  const a = addr.toLowerCase();
-  return `${a.slice(0, 6)}...${a.slice(-4)}`;
+  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }
 
-// ENS resolution cache (in-memory, resets on server restart)
-const ensCache = new Map<string, string | null>();
-
-// Resolve ENS name for an address (uses Ethereum mainnet ENS)
-// Note: This is a placeholder. For production, implement proper ENS resolution using:
-// - ethers.js with ENS resolver
-// - The Graph's ENS subgraph
-// - A dedicated ENS resolution service like 1inch's API
-async function resolveENS(address: string): Promise<string | null> {
-  if (!address || !address.startsWith("0x")) return null;
-
-  const addrLower = address.toLowerCase();
-
-  // Check cache first
-  if (ensCache.has(addrLower)) {
-    return ensCache.get(addrLower) ?? null;
-  }
-
-  try {
-    // TODO: Implement proper ENS resolution
-    // For now, return null (shortened address will be used)
-    ensCache.set(addrLower, null);
-    return null;
-  } catch (error) {
-    console.error(`ENS resolution failed for ${address}:`, error);
-    ensCache.set(addrLower, null);
-    return null;
-  }
-}
-
-// Resolve display name (ENS or shortened address)
-// Synchronous version for use in explain() function
-function resolveDisplayName(addr?: string | null): string {
-  if (!addr) return "unknown";
-  // For now, return shortened address
-  // Future: can be enhanced to batch-resolve ENS names
-  return shortenAddress(addr);
-}
-
-function formatTokenAmount(
-  tokenContract: string | undefined,
+function formatCoinAmount(
+  coinType: string | undefined,
   rawAmount: string | undefined,
 ): { amount: string; symbol: string } {
   if (!rawAmount) {
-    return { amount: "0", symbol: "tokens" };
+    return { amount: "0", symbol: "coins" };
   }
 
-  const meta =
-    tokenContract !== undefined
-      ? KNOWN_TOKENS[tokenContract.toLowerCase()] ?? null
-      : null;
-  const decimals = meta ? meta.decimals : 18;
-  const symbol = meta ? meta.symbol : "tokens";
+  const meta = coinType ? KNOWN_COINS[coinType] ?? null : null;
+  const decimals = meta ? meta.decimals : 9; // Default to SUI decimals
+  const symbol = meta ? meta.symbol : "coins";
 
   try {
     const raw = BigInt(rawAmount);
@@ -405,7 +133,6 @@ function formatTokenAmount(
       return { amount: whole.toString(10), symbol };
     }
 
-    // Simple decimal formatting with trimmed trailing zeros.
     const fracStr = frac.toString(10).padStart(decimals, "0").replace(/0+$/, "");
     return { amount: `${whole.toString(10)}.${fracStr}`, symbol };
   } catch {
@@ -413,36 +140,200 @@ function formatTokenAmount(
   }
 }
 
-// MVP, rules-based explainer (no AI).
+function resolveDisplayName(addr?: string | null): string {
+  if (!addr) return "unknown";
+  return shortenAddress(addr);
+}
+
+// Parse coin transfers from Sui transaction events
+function parseCoinTransfers(
+  events: SuiTransactionBlock["events"],
+): CoinTransfer[] {
+  const transfers: CoinTransfer[] = [];
+
+  if (!events) return transfers;
+
+  for (const event of events) {
+    // Coin transfer events
+    if (event.type?.includes("Transfer")) {
+      const parsed = event.parsedJson as {
+        amount?: string;
+        coin_type?: string;
+        recipient?: string;
+        sender?: string;
+      };
+
+      if (parsed?.amount && parsed?.recipient) {
+        transfers.push({
+          coinType: parsed.coin_type || "0x2::sui::SUI",
+          from: parsed.sender || "unknown",
+          to: parsed.recipient,
+          amount: parsed.amount,
+        });
+      }
+    }
+  }
+
+  return transfers;
+}
+
+// Classify actions from Sui transaction
+function classifyActions(
+  tx: SuiTransactionBlock,
+  coinTransfers: CoinTransfer[],
+): Action[] {
+  const actions: Action[] = [];
+
+  // Process coin transfers
+  for (const transfer of coinTransfers) {
+    const { amount, symbol } = formatCoinAmount(transfer.coinType, transfer.amount);
+    actions.push({
+      type: "COIN_TRANSFER",
+      description: `sent ${amount} ${symbol}`,
+      from: transfer.from,
+      to: transfer.to,
+      coinType: transfer.coinType,
+      amount: transfer.amount,
+    });
+  }
+
+  // Detect object creation and transfers from objectChanges
+  const objectChanges = tx.objectChanges || [];
+  let createdCount = 0;
+  let transferredCount = 0;
+  const nftTransfers: Array<{ from: string; to: string; objectId: string; objectType?: string }> = [];
+
+  for (const change of objectChanges) {
+    if (change.type === "created") {
+      createdCount++;
+    } else if (change.type === "transferred") {
+      transferredCount++;
+      const transferred = change as any;
+      if (transferred.objectType && transferred.objectType.includes("nft")) {
+        nftTransfers.push({
+          from: transferred.sender || "unknown",
+          to: transferred.recipient || "unknown",
+          objectId: transferred.objectId || "",
+          objectType: transferred.objectType,
+        });
+      }
+    }
+  }
+
+  // Add object creation summary
+  if (createdCount > 0) {
+    actions.push({
+      type: "OBJECT_CREATED",
+      description: `${createdCount} new object${createdCount > 1 ? "s were" : " was"} created`,
+      from: tx.transaction?.data?.transaction?.sender || "unknown",
+      to: null,
+      amount: createdCount.toString(),
+    });
+  }
+
+  // Add NFT transfers
+  for (const nft of nftTransfers) {
+    const objectIdShort = nft.objectId ? `#${nft.objectId.slice(0, 8)}` : "";
+    actions.push({
+      type: "NFT_TRANSFER",
+      description: `NFT ${objectIdShort} transferred`,
+      from: nft.from,
+      to: nft.to,
+      objectId: nft.objectId,
+    });
+  }
+
+  // Extract Move call information
+  const transactionData = tx.transaction?.data?.transaction;
+  if (transactionData) {
+    const kind = transactionData.kind;
+    
+    // Check for ProgrammableTransaction which contains Move calls
+    if (kind && typeof kind === "object" && "ProgrammableTransaction" in kind) {
+      const progTx = (kind as any).ProgrammableTransaction;
+      const commands = progTx?.transactions || [];
+      
+      for (const cmd of commands) {
+        if (cmd.MoveCall) {
+          const moveCall = cmd.MoveCall;
+          const packageId = moveCall.package || "unknown";
+          const module = moveCall.module || "unknown";
+          const functionName = moveCall.function || "unknown";
+          
+          // Shorten package ID for display
+          const packageShort = packageId.length > 20 
+            ? `${packageId.slice(0, 10)}...${packageId.slice(-6)}`
+            : packageId;
+          
+          actions.push({
+            type: "MOVE_CALL",
+            description: `called ${module}::${functionName}`,
+            from: transactionData.sender || "unknown",
+            to: packageId,
+            coinType: `${packageShort}::${module}::${functionName}`,
+          });
+        }
+      }
+    } else if (kind && kind !== "TransferObject") {
+      // Generic contract interaction
+      const sender = transactionData.sender;
+      actions.push({
+        type: "CONTRACT_CALL",
+        description: `executed ${typeof kind === "string" ? kind : "transaction"}`,
+        from: sender,
+        to: null,
+      });
+    }
+  }
+
+  return actions;
+}
+
+// Generate human-readable explanation
 export function explain(action: Action): string {
   switch (action.type) {
-    case "ERC20_TRANSFER": {
-      const { amount, symbol } = formatTokenAmount(
-        action.tokenContract,
-        action.amount,
-      );
+    case "COIN_TRANSFER": {
+      const { amount, symbol } = formatCoinAmount(action.coinType, action.amount);
       const fromName = resolveDisplayName(action.from);
       const toName = resolveDisplayName(action.to ?? undefined);
-      return `${fromName} sent ${amount} ${symbol} to ${toName}`;
+      return `${fromName} transferred ${amount} ${symbol} to ${toName}`;
     }
-    case "ERC721_TRANSFER": {
+    case "NFT_TRANSFER": {
       const fromName = resolveDisplayName(action.from);
       const toName = resolveDisplayName(action.to ?? undefined);
-      const id = action.tokenId ?? "unknown";
-      return `NFT #${id} transferred from ${fromName} to ${toName}`;
+      const objectId = action.objectId ? `#${action.objectId.slice(0, 8)}` : "";
+      return `NFT ${objectId} transferred from ${fromName} to ${toName}`;
     }
-    case "ERC1155_TRANSFER": {
+    case "OBJECT_CREATED": {
       const fromName = resolveDisplayName(action.from);
-      const toName = resolveDisplayName(action.to ?? undefined);
-      const id = action.tokenId ?? "unknown";
-      const amount = action.amount ?? "1";
-      return `NFT #${id} (x${amount}) transferred from ${fromName} to ${toName}`;
+      const count = action.amount || "1";
+      return `${count} new object${count !== "1" ? "s were" : " was"} created by ${fromName}`;
+    }
+    case "MOVE_CALL": {
+      const fromName = resolveDisplayName(action.from);
+      const callInfo = action.coinType || "unknown function";
+      // Format: package::module::function
+      const parts = callInfo.split("::");
+      if (parts.length >= 3) {
+        const [packageId, module, functionName] = parts;
+        const packageShort = packageId.length > 20 
+          ? `${packageId.slice(0, 10)}...${packageId.slice(-6)}`
+          : packageId;
+        return `${fromName} called ${module}::${functionName} in package ${packageShort}`;
+      }
+      return `${fromName} executed Move call: ${callInfo}`;
     }
     case "CONTRACT_CALL": {
-      const target = action.to?.toLowerCase() ?? "";
-      const knownName = KNOWN_CONTRACTS[target];
-      const display = knownName ?? shortenAddress(action.to ?? undefined);
-      return `User interacted with ${display}`;
+      const fromName = resolveDisplayName(action.from);
+      return `${fromName} executed a contract call`;
+    }
+    case "STAKING": {
+      const fromName = resolveDisplayName(action.from);
+      return `${fromName} staked SUI`;
+    }
+    case "SWAP": {
+      const fromName = resolveDisplayName(action.from);
+      return `${fromName} executed a swap`;
     }
     default:
       return "Unrecognized action";
@@ -450,160 +341,169 @@ export function explain(action: Action): string {
 }
 
 export async function GET(_request: Request, { params }: RouteParams) {
-  // Next.js 15+ may have params as a Promise
   const resolvedParams = await Promise.resolve(params);
   const { txHash: rawTxHash } = resolvedParams;
 
-  // Debug logging
-  console.log("[Explain API] Received rawTxHash:", rawTxHash);
-  console.log("[Explain API] Type:", typeof rawTxHash);
-  console.log("[Explain API] Length:", rawTxHash?.length);
-
-  // 1. Extract and validate tx hash
-  let txHash: string | null = null;
+  // Extract and validate transaction digest
+  // Sui digests can be in base58 format (e.g., "GX67hXSgrpKY3u9YoTkRbMG6Zvov4zJzeWdqAhPGnEbo")
+  // or hex format (64 hex characters)
+  let txDigest: string | null = null;
 
   if (typeof rawTxHash === "string") {
-    // Best-effort: try to extract a well-formed hash from the string.
-    const match = rawTxHash.match(/0x[0-9a-fA-F]{64}/);
-    if (match) {
-      txHash = match[0];
-      console.log("[Explain API] Extracted hash via regex:", txHash);
-    } else {
-      // Fallback: if it starts with 0x and is long enough, slice the first 66 chars.
-      const trimmed = rawTxHash.trim();
-      if (trimmed.startsWith("0x") && trimmed.length >= 66) {
-        txHash = trimmed.slice(0, 66);
-        console.log("[Explain API] Extracted hash via slice:", txHash);
-      }
+    const trimmed = rawTxHash.trim();
+    
+    // Check for hex format (64 hex characters, with or without 0x prefix)
+    const hexMatch = trimmed.match(/(?:0x)?([0-9a-fA-F]{64})/i);
+    if (hexMatch) {
+      txDigest = hexMatch[1];
+    }
+    // Check for base58 format (Sui's native format)
+    // Base58: 32-44 characters using 1-9A-HJ-NP-Za-km-z (no 0, O, I, l)
+    else if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(trimmed)) {
+      txDigest = trimmed;
     }
   }
 
-  if (!txHash) {
-    console.log("[Explain API] Failed to extract hash. Returning 400.");
+  if (!txDigest) {
     return NextResponse.json(
       {
-        error: "Invalid transaction hash",
-        details:
-          "txHash must contain a 66-character 0x-prefixed hex string (32 bytes).",
+        error: "Invalid transaction digest",
+        details: "Transaction digest must be a 64-character hex string or base58-encoded string (32-44 characters).",
         received: rawTxHash,
-        debug: {
-          type: typeof rawTxHash,
-          length: rawTxHash?.length,
-          value: rawTxHash,
-        },
       },
       { status: 400 },
     );
   }
 
   try {
-    const trimmedHash = txHash.trim();
+    // Default to Sui mainnet
+    // Use custom RPC if provided, otherwise use mainnet public RPC
+    const client = getSuiClient("mainnet");
+    let txBlock = null;
+    let lastError: Error | null = null;
 
-    // 2. Fetch tx + receipt in parallel
-    const [tx, receipt] = await Promise.all([
-      callRpc<RpcTransaction>({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "eth_getTransactionByHash",
-        params: [trimmedHash],
-      }),
-      callRpc<RpcReceipt>({
-        jsonrpc: "2.0",
-        id: 2,
-        method: "eth_getTransactionReceipt",
-        params: [trimmedHash],
-      }),
-    ]);
+    try {
+      txBlock = await client.getTransactionBlock({
+        digest: txDigest,
+        options: {
+          showInput: true,
+          showEffects: true,
+          showEvents: true,
+          showObjectChanges: true,
+          showBalanceChanges: true,
+        },
+      });
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.error("Error fetching transaction from Sui mainnet:", error);
+    }
 
-    if (!tx) {
+    if (!txBlock) {
       return NextResponse.json(
         {
-          error: "Transaction not found",
+          error: "Transaction not found on Sui Mainnet",
           details:
-            "The transaction may not exist on this network or the RPC is pointing to the wrong chain.",
+            lastError?.message ||
+            "The transaction could not be found on Sui Mainnet. Please verify the transaction digest is correct and that it exists on mainnet.",
+          suggestion:
+            "This application is configured for Sui Mainnet. Make sure the transaction digest is from a mainnet transaction.",
         },
         { status: 404 },
       );
     }
 
-    // 3. Fetch transfers (native + tokens)
-    const nativeTransfer: NativeTransfer = {
-      from: tx.from,
-      to: tx.to,
-      valueWei: tx.value ?? "0x0",
-    };
-
-    const tokenTransfers = receipt?.logs
-      ? parseTokenTransfers(receipt.logs)
-      : [];
-
-    // 4. Build explanation JSON
+    // Parse transaction data
     const status =
-      receipt?.status === "0x1"
+      txBlock.effects?.status?.status === "success"
         ? "success"
-        : receipt?.status === "0x0"
+        : txBlock.effects?.status?.status === "failure"
           ? "reverted"
           : "pending_or_unknown";
 
-    const gasUsed = hexToDecimalString(receipt?.gasUsed);
-    const effectiveGasPrice = hexToDecimalString(
-      receipt?.effectiveGasPrice ??
-        tx.maxFeePerGas ??
-        tx.gasPrice ??
-        "0x0",
-    );
-
-    // Calculate L2 execution fee
-    const l2FeeWei =
-      receipt?.gasUsed && effectiveGasPrice
-        ? BigInt(receipt.gasUsed) * BigInt(effectiveGasPrice)
-        : BigInt(0);
-
-    // Get L1 fee from receipt (Arbitrum-specific)
-    const l1FeeWei = receipt?.l1Fee
-      ? BigInt(receipt.l1Fee)
-      : BigInt(0);
-
-    // Calculate total fee
-    const totalFeeWei = l2FeeWei + l1FeeWei;
-
-    // Calculate L1 fee from calldata if not in receipt
-    // Arbitrum L1 fee = (l1GasPrice * l1GasUsed) or from receipt.l1Fee
-    let calculatedL1Fee = l1FeeWei;
-    if (calculatedL1Fee === BigInt(0) && receipt?.l1GasPrice && receipt?.l1GasUsed) {
-      const l1GasPrice = BigInt(receipt.l1GasPrice);
-      const l1GasUsed = BigInt(receipt.l1GasUsed);
-      calculatedL1Fee = l1GasPrice * l1GasUsed;
+    // Sui transaction structure might be different - try multiple paths
+    const sender = 
+      txBlock.transaction?.data?.transaction?.sender ||
+      txBlock.transaction?.data?.sender ||
+      (txBlock as any).sender ||
+      "unknown";
+    
+    // Extract transaction type
+    const transactionKind = 
+      txBlock.transaction?.data?.transaction?.kind ||
+      (txBlock as any).transaction?.kind ||
+      "Unknown";
+    
+    // Extract checkpoint sequence number
+    // Checkpoint might be in different locations depending on SDK version
+    const checkpointSeq = 
+      (txBlock as any).checkpoint ||
+      (txBlock as any).checkpointSeq ||
+      (txBlock as any).checkpointSequenceNumber ||
+      txBlock.effects?.checkpoint ||
+      null;
+    
+    // Extract timestamp (Sui uses timestampMs)
+    // Timestamp might need to be fetched from checkpoint or transaction
+    const timestampMs = 
+      (txBlock as any).timestampMs ||
+      (txBlock as any).timestamp ||
+      txBlock.effects?.timestampMs ||
+      null;
+    
+    // Format timestamp
+    let formattedTimestamp: string | null = null;
+    if (timestampMs) {
+      try {
+        const date = new Date(Number(timestampMs));
+        formattedTimestamp = date.toISOString();
+      } catch {
+        formattedTimestamp = timestampMs.toString();
+      }
     }
+      
+    const gasUsed = txBlock.effects?.gasUsed || {};
+    const computationCost = hexToDecimalString(gasUsed.computationCost);
+    const storageCost = hexToDecimalString(gasUsed.storageCost);
+    const storageRebate = hexToDecimalString(gasUsed.storageRebate);
+    const totalGasCost =
+      BigInt(computationCost) +
+      BigInt(storageCost) -
+      BigInt(storageRebate);
 
-    const actions = classifyActions({
-      transaction: tx,
-      receipt,
-      tokenTransfers,
-    });
+    // Parse coin transfers
+    const coinTransfers = parseCoinTransfers(txBlock.events);
+
+    // Classify actions
+    const actions = classifyActions(txBlock as SuiTransactionBlock, coinTransfers);
+    
+    // Count object creation
+    const objectCreatedCount = actions.filter(a => a.type === "OBJECT_CREATED")
+      .reduce((sum, a) => sum + parseInt(a.amount || "0", 10), 0);
 
     const explanation = {
-      txHash: tx.hash,
+      txDigest: txBlock.digest,
       status,
+      transactionType: transactionKind,
+      checkpointSeq: checkpointSeq?.toString() || null,
+      timestamp: formattedTimestamp,
+      timestampMs: timestampMs?.toString() || null,
       summary: {
-        from: tx.from,
-        to: tx.to,
-        nativeValueWei: hexToDecimalString(tx.value),
-        gasUsed,
-        effectiveGasPriceWei: effectiveGasPrice,
-        totalFeeWei: totalFeeWei.toString(10),
-        l2FeeWei: l2FeeWei.toString(10),
-        l1FeeWei: calculatedL1Fee.toString(10),
+        from: sender,
+        objectsCreated: objectCreatedCount,
+        gasUsed: {
+          computationCost,
+          storageCost,
+          storageRebate,
+          total: totalGasCost.toString(10),
+        },
       },
       transfers: {
-        native: nativeTransfer,
-        tokens: tokenTransfers,
+        coins: coinTransfers,
       },
       actions,
       actionExplanations: actions.map(explain),
       raw: {
-        transaction: tx,
-        receipt,
+        transaction: txBlock,
       },
     };
 
@@ -621,5 +521,3 @@ export async function GET(_request: Request, { params }: RouteParams) {
     );
   }
 }
-
-

@@ -7,13 +7,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 type Summary = {
   from: string;
-  to: string | null;
-  nativeValueWei: string;
-  gasUsed: string;
-  effectiveGasPriceWei: string;
-  totalFeeWei: string;
-  l2FeeWei?: string;
-  l1FeeWei?: string;
+  objectsCreated?: number;
+  gasUsed: {
+    computationCost: string;
+    storageCost: string;
+    storageRebate: string;
+    total: string;
+  };
 };
 
 type Action = {
@@ -21,22 +21,27 @@ type Action = {
   description: string;
   from?: string;
   to?: string | null;
-  tokenContract?: string;
-  tokenId?: string;
+  coinType?: string;
   amount?: string;
+  objectId?: string;
 };
 
 type ExplanationResponse = {
-  txHash: string;
+  txDigest: string;
   status: string;
+  transactionType?: string;
+  checkpointSeq?: string | null;
+  timestamp?: string | null;
+  timestampMs?: string | null;
   summary: Summary;
   transfers: {
-    native: {
+    coins: Array<{
+      coinType: string;
       from: string;
-      to: string | null;
-      valueWei: string;
-    };
-    tokens: unknown[];  };
+      to: string;
+      amount: string;
+    }>;
+  };
   actions: Action[];
   actionExplanations: string[];
 };
@@ -62,27 +67,27 @@ function formatInteger(num: string): string {
   return num.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-function formatWeiToEth(wei: string | undefined): string {
-  if (!wei) return "0 ETH";
+function formatMistToSui(mist: string | undefined): string {
+  if (!mist) return "0 SUI";
   try {
-    const raw = BigInt(wei);
-    const base = BigInt("1000000000000000000");
+    const raw = BigInt(mist);
+    const base = BigInt("1000000000"); // SUI has 9 decimals
     const whole = raw / base;
     const frac = raw % base;
     
     if (frac === BigInt(0)) {
-      return `${formatNumber(whole.toString(10))} ETH`;
+      return `${formatNumber(whole.toString(10))} SUI`;
     }
     
     const fracStr = frac
       .toString(10)
-      .padStart(18, "0")
+      .padStart(9, "0")
       .replace(/0+$/, "");
     
     const wholeFormatted = formatNumber(whole.toString(10));
-    return `${wholeFormatted}.${fracStr} ETH`;
+    return `${wholeFormatted}.${fracStr} SUI`;
   } catch {
-    return `${formatNumber(wei)} wei`;
+    return `${formatNumber(mist)} mist`;
   }
 }
 
@@ -98,9 +103,96 @@ function formatLargeNumber(num: string): string {
   }
 }
 
-function extractTxHash(input: string): string | null {
-  const match = input.match(/0x[0-9a-fA-F]{64}/);
-  return match ? match[0] : null;
+function formatCoinAmount(
+  coinType: string | undefined,
+  rawAmount: string | undefined,
+): { amount: string; symbol: string } {
+  if (!rawAmount) {
+    return { amount: "0", symbol: "coins" };
+  }
+
+  // Default to SUI decimals (9)
+  const decimals = 9;
+  let symbol = "SUI";
+
+  // Check for known coin types
+  if (coinType?.includes("sui::SUI")) {
+    symbol = "SUI";
+  } else if (coinType?.includes("usdc")) {
+    symbol = "USDC";
+  } else if (coinType?.includes("usdt")) {
+    symbol = "USDT";
+  } else if (coinType) {
+    // Extract symbol from coin type if possible
+    const parts = coinType.split("::");
+    if (parts.length >= 2) {
+      symbol = parts[parts.length - 1] || "coins";
+    }
+  }
+
+  try {
+    const raw = BigInt(rawAmount);
+    const base = BigInt("1" + "0".repeat(decimals));
+    const whole = raw / base;
+    const frac = raw % base;
+
+    if (frac === BigInt(0)) {
+      return { amount: formatNumber(whole.toString(10)), symbol };
+    }
+
+    const fracStr = frac.toString(10).padStart(decimals, "0").replace(/0+$/, "");
+    return { amount: `${formatNumber(whole.toString(10))}.${fracStr}`, symbol };
+  } catch {
+    return { amount: formatNumber(rawAmount), symbol };
+  }
+}
+
+function extractTxDigest(input: string): string | null {
+  if (!input || typeof input !== "string") return null;
+  
+  // Sui transaction digests can be in two formats:
+  // 1. Base58 encoded (e.g., "GX67hXSgrpKY3u9YoTkRbMG6Zvov4zJzeWdqAhPGnEbo")
+  // 2. Hex format: 64 hex characters (with or without 0x prefix)
+  
+  const trimmed = input.trim();
+  
+  // First, try to find a 64-character hex string (with optional 0x prefix)
+  const hexMatch = trimmed.match(/(?:0x)?([0-9a-fA-F]{64})/i);
+  if (hexMatch) {
+    return hexMatch[1];
+  }
+  
+  // Try to extract hex from URL paths
+  const urlHexMatch = trimmed.match(/[\/=]([0-9a-fA-F]{64})/i);
+  if (urlHexMatch) {
+    return urlHexMatch[1];
+  }
+  
+  // Check for base58 encoded digest (Sui format)
+  // Base58 uses: 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz (no 0, O, I, l)
+  // Sui base58 digests are typically 32-44 characters
+  const base58Pattern = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+  if (base58Pattern.test(trimmed)) {
+    return trimmed;
+  }
+  
+  // Try to extract base58 from URL paths
+  const urlBase58Match = trimmed.match(/[\/=]([1-9A-HJ-NP-Za-km-z]{32,44})/);
+  if (urlBase58Match) {
+    return urlBase58Match[1];
+  }
+  
+  // If input is exactly 64 hex chars (no 0x), return it
+  if (/^[0-9a-fA-F]{64}$/i.test(trimmed)) {
+    return trimmed;
+  }
+  
+  // If input is 66 chars starting with 0x, return the hex part
+  if (/^0x[0-9a-fA-F]{64}$/i.test(trimmed)) {
+    return trimmed.slice(2);
+  }
+  
+  return null;
 }
 
 // Token icon helper
@@ -153,14 +245,14 @@ function CopyableAddress({
   return (
     <button
       onClick={handleCopy}
-      className={`inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800 ${colorClasses[variant]} ${className}`}
+      className={`group inline-flex items-center gap-2 rounded-lg border border-slate-700/50 bg-slate-900/50 px-2.5 py-1 font-mono text-sm transition-all hover:border-indigo-500/50 hover:bg-indigo-500/10 ${colorClasses[variant]} ${className}`}
       title={`Click to copy: ${address}`}
     >
-      <span className="font-mono text-sm">{displayAddress}</span>
+      <span>{displayAddress}</span>
       {copied ? (
-        <span className="text-xs">✓</span>
+        <span className="text-xs text-emerald-400">✓</span>
       ) : (
-        <span className="text-xs opacity-60">📋</span>
+        <span className="text-xs text-slate-500 opacity-0 transition-opacity group-hover:opacity-100">📋</span>
       )}
     </button>
   );
@@ -182,33 +274,58 @@ function TxInput({ value, onChange, onSubmit, loading }: TxInputProps) {
   };
 
   return (
-    <section className="space-y-3">
-      <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
-        Transaction Input
-      </h2>
+    <section className="space-y-4">
+      <div className="flex items-center gap-2">
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+          Transaction Input
+        </h2>
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
+      </div>
       <form
         onSubmit={handleSubmit}
-        className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950"
+        className="group relative flex flex-col gap-4 rounded-2xl border border-slate-800/50 bg-gradient-to-br from-slate-800/40 to-slate-900/40 p-6 shadow-xl backdrop-blur-sm transition-all duration-300 hover:border-indigo-500/30 hover:shadow-2xl"
       >
-        <label className="text-sm text-zinc-600 dark:text-zinc-400">
-          Paste an Arbitrum transaction hash or Arbiscan link.
+        <label className="text-sm font-medium text-slate-300">
+          Paste a Sui transaction digest or Sui Explorer link
         </label>
-        <input
-          className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm outline-none ring-0 placeholder:text-zinc-400 focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:placeholder:text-zinc-500 dark:focus:border-zinc-50 dark:focus:ring-zinc-50/10"
-          placeholder="0x... or https://arbiscan.io/tx/0x..."
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        />
-        <div className="flex items-center justify-between gap-3">
+        <div className="relative">
+          <input
+            className="w-full rounded-xl border border-slate-700/50 bg-slate-900/50 px-4 py-3.5 text-sm text-slate-100 placeholder:text-slate-500 shadow-inner outline-none ring-0 transition-all duration-200 focus:border-indigo-500/50 focus:bg-slate-900/70 focus:ring-2 focus:ring-indigo-500/20"
+            placeholder="GX67hXSgrpKY3u9YoTkRbMG6Zvov4zJzeWdqAhPGnEbo"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={loading}
+          />
+          {loading && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+            </div>
+          )}
+        </div>
+        <div className="flex items-center justify-between gap-4">
           <button
             type="submit"
             disabled={loading || !value.trim()}
-            className="inline-flex items-center justify-center rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-zinc-50 shadow-sm transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            className="group/btn relative inline-flex items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-3 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:from-indigo-500 hover:to-purple-500 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:shadow-lg"
           >
-            {loading ? "Explaining..." : "Explain transaction"}
+            <span className="relative z-10 flex items-center gap-2">
+              {loading ? (
+                <>
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  <span>Analyzing...</span>
+                </>
+              ) : (
+                <>
+                  <span>🔍</span>
+                  <span>Explain Transaction</span>
+                </>
+              )}
+            </span>
+            <div className="absolute inset-0 bg-gradient-to-r from-indigo-400 to-purple-400 opacity-0 transition-opacity duration-200 group-hover/btn:opacity-100" />
           </button>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            No private keys required. Read-only RPC on Arbitrum.
+          <p className="text-xs text-slate-500">
+            Secure • Read-only • No keys required
           </p>
         </div>
       </form>
@@ -223,65 +340,231 @@ type ExplanationSummaryProps = {
 function ExplanationSummary({ data }: ExplanationSummaryProps) {
   if (!data) return null;
 
-  const { txHash, status, summary } = data;
-  const nativeValue = formatWeiToEth(summary.nativeValueWei);
-  const hasNativeValue = (() => {
-    try {
-      return BigInt(summary.nativeValueWei) > BigInt("0");
-    } catch {
-      return false;
-    }
-  })();
+  const { txDigest, status, summary } = data;
 
-  const [txHashCopied, setTxHashCopied] = useState(false);
+  const [txDigestCopied, setTxDigestCopied] = useState(false);
 
-  const handleCopyTxHash = async () => {
+  const handleCopyTxDigest = async () => {
     if (typeof window === "undefined") return;
     try {
-      await navigator.clipboard.writeText(txHash);
-      setTxHashCopied(true);
-      setTimeout(() => setTxHashCopied(false), 1500);
+      await navigator.clipboard.writeText(txDigest);
+      setTxDigestCopied(true);
+      setTimeout(() => setTxDigestCopied(false), 1500);
     } catch (err) {
       console.error("Failed to copy:", err);
     }
   };
 
   return (
-    <section className="space-y-3">
-      <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
-        Explanation Summary
-      </h2>
-      <div className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm dark:border-zinc-800 dark:bg-zinc-950">
-        <div className="flex flex-wrap items-center gap-2">
+    <section className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
+      <div className="flex items-center gap-2">
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+          Summary
+        </h2>
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
+      </div>
+      <div className="space-y-4 rounded-2xl border border-slate-800/50 bg-gradient-to-br from-slate-800/40 to-slate-900/40 p-6 shadow-xl backdrop-blur-sm">
+        <div className="flex flex-wrap items-center gap-3">
           <span
-            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+            className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold shadow-lg ${
               status === "success"
-                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                ? "bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-emerald-300 border border-emerald-500/30"
                 : status === "reverted"
-                  ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                  : "bg-zinc-900 text-zinc-50 dark:bg-zinc-100 dark:text-zinc-900"
+                  ? "bg-gradient-to-r from-red-500/20 to-rose-500/20 text-red-300 border border-red-500/30"
+                  : "bg-gradient-to-r from-slate-500/20 to-slate-600/20 text-slate-300 border border-slate-500/30"
             }`}
           >
-            {status}
+            <span className={`h-1.5 w-1.5 rounded-full ${
+              status === "success" ? "bg-emerald-400" : status === "reverted" ? "bg-red-400" : "bg-slate-400"
+            }`} />
+            {status.toUpperCase()}
           </span>
           <button
-            onClick={handleCopyTxHash}
-            className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 font-mono text-xs text-zinc-600 transition-colors hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
-            title={`Click to copy: ${txHash}`}
+            onClick={handleCopyTxDigest}
+            className="group inline-flex items-center gap-2 rounded-lg border border-slate-700/50 bg-slate-900/50 px-3 py-1.5 font-mono text-xs text-slate-300 transition-all hover:border-indigo-500/50 hover:bg-indigo-500/10"
+            title={`Click to copy: ${txDigest}`}
           >
-            <code className="truncate">{shortenAddress(txHash)}</code>
-            {txHashCopied ? (
-              <span className="text-xs">✓</span>
+            <code className="truncate">{shortenAddress(txDigest)}</code>
+            {txDigestCopied ? (
+              <span className="text-emerald-400">✓</span>
             ) : (
-              <span className="text-xs opacity-60">📋</span>
+              <span className="text-slate-500 group-hover:text-indigo-400">📋</span>
             )}
           </button>
         </div>
-        <p className="text-zinc-700 dark:text-zinc-300">
-          <CopyableAddress address={summary.from} variant="from" />{" "}
-          {hasNativeValue ? `sent ${nativeValue} to` : "interacted with"}{" "}
-          <CopyableAddress address={summary.to} variant="to" />.
-        </p>
+        <div className="rounded-lg bg-slate-900/30 p-4">
+          <p className="text-sm leading-relaxed text-slate-300">
+            Transaction executed by{" "}
+            <CopyableAddress address={summary.from} variant="from" />.
+            {summary.objectsCreated !== undefined && summary.objectsCreated > 0 && (
+              <span className="ml-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-medium text-emerald-300 border border-emerald-500/30">
+                <span>✨</span>
+                <span>{summary.objectsCreated} object{summary.objectsCreated !== 1 ? "s" : ""} created</span>
+              </span>
+            )}
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+type TransactionFlowProps = {
+  data: ExplanationResponse | null;
+};
+
+function TransactionFlow({ data }: TransactionFlowProps) {
+  if (!data || !data.actions || data.actions.length === 0) return null;
+
+  // Extract unique transfer flows (from → to)
+  const flows: Array<{ from: string; to: string; type: string; label: string }> = [];
+  
+  for (const action of data.actions) {
+    if (action.from && action.to && (action.type === "COIN_TRANSFER" || action.type === "NFT_TRANSFER")) {
+      // Check if this flow already exists
+      const exists = flows.some(
+        f => f.from === action.from && f.to === action.to && f.type === action.type
+      );
+      
+      if (!exists) {
+        let label = "";
+        if (action.type === "COIN_TRANSFER") {
+          const { amount, symbol } = formatCoinAmount(action.coinType, action.amount);
+          label = `${amount} ${symbol}`;
+        } else if (action.type === "NFT_TRANSFER") {
+          label = action.objectId ? `NFT #${action.objectId.slice(0, 8)}` : "NFT";
+        }
+        
+        flows.push({
+          from: action.from,
+          to: action.to,
+          type: action.type,
+          label,
+        });
+      }
+    }
+  }
+
+  if (flows.length === 0) return null;
+
+  return (
+    <section className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
+      <div className="flex items-center gap-2">
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+          Transaction Flow
+        </h2>
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
+      </div>
+      <div className="space-y-4 rounded-2xl border border-slate-800/50 bg-gradient-to-br from-slate-800/40 to-slate-900/40 p-6 shadow-xl backdrop-blur-sm">
+        {flows.map((flow, idx) => (
+          <div key={idx} className="flex items-center gap-4">
+            <div className="flex flex-1 items-center gap-3">
+              <div className="flex flex-col items-center gap-1">
+                <div className="h-10 w-10 rounded-full border-2 border-indigo-500/50 bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center">
+                  <span className="text-xs">👤</span>
+                </div>
+                <CopyableAddress address={flow.from} variant="from" className="text-xs" />
+              </div>
+              
+              <div className="flex-1 flex items-center gap-2">
+                <div className="h-px flex-1 bg-gradient-to-r from-indigo-500/50 to-purple-500/50" />
+                <div className="flex items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-1.5">
+                  <span className="text-lg">→</span>
+                  <span className="text-xs font-medium text-indigo-300">{flow.label}</span>
+                </div>
+                <div className="h-px flex-1 bg-gradient-to-r from-purple-500/50 to-indigo-500/50" />
+              </div>
+              
+              <div className="flex flex-col items-center gap-1">
+                <div className="h-10 w-10 rounded-full border-2 border-purple-500/50 bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center">
+                  <span className="text-xs">👤</span>
+                </div>
+                <CopyableAddress address={flow.to} variant="to" className="text-xs" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+type TransactionMetadataProps = {
+  data: ExplanationResponse | null;
+};
+
+function TransactionMetadata({ data }: TransactionMetadataProps) {
+  if (!data) return null;
+
+  const formatDate = (timestamp: string | null | undefined): string => {
+    if (!timestamp) return "N/A";
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleString("en-US", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        timeZone: "UTC",
+        timeZoneName: "short",
+      });
+    } catch {
+      return timestamp;
+    }
+  };
+
+  return (
+    <section className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
+      <div className="flex items-center gap-2">
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+          Transaction Details
+        </h2>
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
+      </div>
+      <div className="grid grid-cols-1 gap-4 rounded-2xl border border-slate-800/50 bg-gradient-to-br from-slate-800/40 to-slate-900/40 p-6 shadow-xl backdrop-blur-sm sm:grid-cols-2">
+        <div className="group rounded-xl border border-slate-700/30 bg-slate-900/30 p-4 transition-all hover:border-indigo-500/30 hover:bg-slate-900/50">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+            Transaction Type
+          </p>
+          <p className="text-sm font-semibold text-slate-200">
+            {data.transactionType || "Unknown"}
+          </p>
+        </div>
+        <div className="group rounded-xl border border-slate-700/30 bg-slate-900/30 p-4 transition-all hover:border-indigo-500/30 hover:bg-slate-900/50">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Digest</p>
+          <p className="font-mono text-xs text-slate-300">
+            {shortenAddress(data.txDigest)}
+          </p>
+        </div>
+        {data.checkpointSeq && (
+          <div className="group rounded-xl border border-slate-700/30 bg-slate-900/30 p-4 transition-all hover:border-indigo-500/30 hover:bg-slate-900/50">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+              Checkpoint Seq. Number
+            </p>
+            <p className="text-sm font-semibold text-slate-200">
+              {formatLargeNumber(data.checkpointSeq)}
+            </p>
+          </div>
+        )}
+        {data.timestamp && (
+          <div className="group rounded-xl border border-slate-700/30 bg-slate-900/30 p-4 transition-all hover:border-indigo-500/30 hover:bg-slate-900/50">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Timestamp</p>
+            <p className="text-sm font-semibold text-slate-200">
+              {formatDate(data.timestamp)}
+            </p>
+          </div>
+        )}
+        <div className="group rounded-xl border border-slate-700/30 bg-slate-900/30 p-4 transition-all hover:border-indigo-500/30 hover:bg-slate-900/50 sm:col-span-2">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Sender</p>
+          <div className="mt-1">
+            <CopyableAddress address={data.summary.from} variant="from" />
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -358,11 +641,15 @@ function ActionList({ explanations, actions }: ActionListProps) {
   };
 
   return (
-    <section className="space-y-3">
-      <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
-        Actions
-      </h2>
-      <ol className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm dark:border-zinc-800 dark:bg-zinc-950">
+    <section className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
+      <div className="flex items-center gap-2">
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+          Actions
+        </h2>
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
+      </div>
+      <ol className="space-y-3 rounded-2xl border border-slate-800/50 bg-gradient-to-br from-slate-800/40 to-slate-900/40 p-6 shadow-xl backdrop-blur-sm">
         {explanations.map((line, idx) => {
           const action = actions?.[idx];
           const icon = getTokenIcon(action?.type, action?.tokenContract);
@@ -370,13 +657,15 @@ function ActionList({ explanations, actions }: ActionListProps) {
           return (
             <li
               key={idx}
-              className="flex items-start gap-3 text-zinc-700 dark:text-zinc-300"
+              className="group flex items-start gap-4 rounded-xl border border-slate-700/30 bg-slate-900/30 p-4 text-sm text-slate-300 transition-all hover:border-indigo-500/30 hover:bg-slate-900/50"
             >
-              <span className="mt-0.5 h-5 w-5 flex-shrink-0 rounded-full bg-zinc-900 text-center text-xs font-medium text-zinc-50 dark:bg-zinc-100 dark:text-zinc-900">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 text-xs font-bold text-indigo-300 shadow-lg">
                 {idx + 1}
-              </span>
-              <span className="mr-2 text-base">{icon}</span>
-              <span className="flex-1">{renderExplanation(line, action)}</span>
+              </div>
+              <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center text-lg">
+                {icon}
+              </div>
+              <span className="flex-1 leading-relaxed">{renderExplanation(line, action)}</span>
             </li>
           );
         })}
@@ -392,66 +681,53 @@ type GasBreakdownProps = {
 function GasBreakdown({ summary }: GasBreakdownProps) {
   if (!summary) return null;
 
-  const totalEth = formatWeiToEth(summary.totalFeeWei);
-  const gasUsedFormatted = formatLargeNumber(summary.gasUsed);
-  const gasPriceFormatted = formatLargeNumber(summary.effectiveGasPriceWei);
-  
-  const l2FeeEth = summary.l2FeeWei ? formatWeiToEth(summary.l2FeeWei) : null;
-  const l1FeeEth = summary.l1FeeWei ? formatWeiToEth(summary.l1FeeWei) : null;
+  const totalSui = formatMistToSui(summary.gasUsed.total);
+  const computationCost = formatMistToSui(summary.gasUsed.computationCost);
+  const storageCost = formatMistToSui(summary.gasUsed.storageCost);
+  const storageRebate = formatMistToSui(summary.gasUsed.storageRebate);
 
   return (
-    <section className="space-y-3">
-      <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
-        Gas Breakdown
-      </h2>
-      <div className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm dark:border-zinc-800 dark:bg-zinc-950">
-        <div className="flex items-center justify-between">
-          <span className="text-zinc-600 dark:text-zinc-400">
-            Total gas cost (L2 + L1 included)
+    <section className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
+      <div className="flex items-center gap-2">
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+          Gas Breakdown
+        </h2>
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
+      </div>
+      <div className="space-y-4 rounded-2xl border border-slate-800/50 bg-gradient-to-br from-slate-800/40 to-slate-900/40 p-6 shadow-xl backdrop-blur-sm">
+        <div className="flex items-center justify-between rounded-xl border border-indigo-500/20 bg-gradient-to-r from-indigo-500/10 to-purple-500/10 p-4">
+          <span className="text-sm font-medium text-slate-300">
+            Total Gas Cost
           </span>
-          <span className="font-semibold text-zinc-900 dark:text-zinc-50">
-            {totalEth}
+          <span className="text-lg font-bold text-indigo-300">
+            {totalSui}
           </span>
         </div>
         
-        {(l2FeeEth || l1FeeEth) && (
-          <div className="grid grid-cols-2 gap-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-            {l2FeeEth && (
-              <div>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  L2 execution fee
-                </p>
-                <p className="font-medium text-zinc-900 dark:text-zinc-50">
-                  {l2FeeEth}
-                </p>
-              </div>
-            )}
-            {l1FeeEth && (
-              <div>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  L1 calldata fee
-                </p>
-                <p className="font-medium text-zinc-900 dark:text-zinc-50">
-                  {l1FeeEth}
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-        
-        <div className="grid grid-cols-2 gap-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-          <div>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">Gas used</p>
-            <p className="font-medium text-zinc-900 dark:text-zinc-50">
-              {gasUsedFormatted}
+        <div className="grid grid-cols-3 gap-4 border-t border-slate-700/50 pt-4">
+          <div className="group rounded-xl border border-slate-700/30 bg-slate-900/30 p-4 text-center transition-all hover:border-indigo-500/30 hover:bg-slate-900/50">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+              Computation
+            </p>
+            <p className="text-sm font-semibold text-slate-200">
+              {computationCost}
             </p>
           </div>
-          <div>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Gas price
+          <div className="group rounded-xl border border-slate-700/30 bg-slate-900/30 p-4 text-center transition-all hover:border-indigo-500/30 hover:bg-slate-900/50">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+              Storage
             </p>
-            <p className="font-medium text-zinc-900 dark:text-zinc-50">
-              {gasPriceFormatted} wei
+            <p className="text-sm font-semibold text-slate-200">
+              {storageCost}
+            </p>
+          </div>
+          <div className="group rounded-xl border border-slate-700/30 bg-slate-900/30 p-4 text-center transition-all hover:border-indigo-500/30 hover:bg-slate-900/50">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+              Storage Rebate
+            </p>
+            <p className="text-sm font-semibold text-emerald-300">
+              -{storageRebate}
             </p>
           </div>
         </div>
@@ -485,18 +761,20 @@ export default function Home() {
     setError(null);
     setResult(null);
 
-    const hash = extractTxHash(raw.trim());
-    if (!hash) {
-      setError("Please paste a valid Arbitrum transaction hash or link containing one.");
+    const digest = extractTxDigest(raw.trim());
+    if (!digest) {
+      setError(
+        `Invalid transaction digest format. Please paste a Sui transaction digest (base58 or hex format) or a Sui Explorer link.\n\nExamples:\n- Base58: GX67hXSgrpKY3u9YoTkRbMG6Zvov4zJzeWdqAhPGnEbo\n- Hex: 0x... (64 hex chars)\n- URL: https://suiexplorer.com/txblock/...`
+      );
       return;
     }
 
     // Update URL with shareable link
-    router.push(`/?tx=${hash}`, { scroll: false });
+    router.push(`/?tx=${digest}`, { scroll: false });
 
     setLoading(true);
     try {
-      const res = await fetch(`/api/explain/${hash}`, {
+      const res = await fetch(`/api/explain/${digest}`, {
         method: "GET",
       });
 
@@ -519,9 +797,9 @@ export default function Home() {
   }, [router]);
 
   const handleShare = useCallback(() => {
-    if (!result?.txHash || typeof window === "undefined") return;
+    if (!result?.txDigest || typeof window === "undefined") return;
 
-    const url = `${window.location.origin}/?tx=${result.txHash}`;
+    const url = `${window.location.origin}/?tx=${result.txDigest}`;
     navigator.clipboard.writeText(url).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -529,22 +807,30 @@ export default function Home() {
   }, [result]);
 
   return (
-    <div className="relative flex min-h-screen items-start justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-4 py-10 font-sans">
-      <div className="pointer-events-none fixed inset-x-0 top-0 z-0 h-64 bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.45),_transparent_60%)]" />
-      <main className="relative z-10 flex w-full max-w-4xl flex-col gap-8 rounded-3xl border border-slate-800 bg-slate-950/80 p-8 shadow-[0_18px_45px_rgba(0,0,0,0.65)] backdrop-blur-xl">
-        <header className="space-y-3">
-          <div className="inline-flex items-center gap-2 rounded-full border border-sky-500/40 bg-slate-900/70 px-3 py-1 text-xs font-medium text-sky-100 shadow-sm">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            <span>Live on Arbitrum Sepolia</span>
+    <div className="relative flex min-h-screen items-start justify-center bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950 px-4 py-12 font-sans">
+      {/* Animated background gradients */}
+      <div className="pointer-events-none fixed inset-0 z-0">
+        <div className="absolute inset-x-0 top-0 h-96 bg-gradient-to-b from-indigo-500/20 via-purple-500/10 to-transparent" />
+        <div className="absolute inset-x-0 top-1/4 h-96 bg-gradient-to-b from-cyan-500/10 via-blue-500/5 to-transparent" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(99,102,241,0.1),transparent_70%)]" />
+      </div>
+      
+      <main className="relative z-10 flex w-full max-w-5xl flex-col gap-8 rounded-3xl border border-slate-800/50 bg-slate-900/40 p-8 shadow-2xl backdrop-blur-2xl transition-all duration-300 hover:border-slate-700/50 sm:p-10">
+        <header className="space-y-4">
+          <div className="inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-gradient-to-r from-indigo-500/10 to-purple-500/10 px-4 py-1.5 text-xs font-medium text-indigo-200 shadow-lg backdrop-blur-sm">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+            </span>
+            <span>Sui Mainnet</span>
           </div>
-          <div className="space-y-1">
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-50 sm:text-4xl">
-              Arbitrum Transaction Explainer
+          <div className="space-y-2">
+            <h1 className="bg-gradient-to-r from-slate-50 via-indigo-100 to-slate-50 bg-clip-text text-4xl font-bold tracking-tight text-transparent sm:text-5xl">
+              Sui Transaction Explainer
             </h1>
-            <p className="max-w-2xl text-sm text-slate-300">
-              Paste a transaction hash and get a human-readable explainer of what
-              happened on-chain: contracts called, tokens moved, and gas paid
-              across L2 + L1.
+            <p className="max-w-2xl text-sm leading-relaxed text-slate-400">
+              Decode Sui Mainnet transactions with human-readable explanations. 
+              Understand coin transfers, object movements, and gas costs at a glance.
             </p>
           </div>
         </header>
@@ -557,52 +843,71 @@ export default function Home() {
         />
 
         {error && (
-          <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-200">
-            {error}
+          <div className="animate-in fade-in slide-in-from-top-2 rounded-2xl border border-red-500/30 bg-gradient-to-br from-red-950/40 to-red-900/20 p-5 text-sm text-red-200 shadow-lg backdrop-blur-sm">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-500/20">
+                <span className="text-red-400">⚠</span>
+              </div>
+              <div className="flex-1">
+                <p className="font-medium text-red-100">{error}</p>
+              </div>
+            </div>
           </div>
         )}
 
         {result && (
-          <div className="flex flex-col gap-3 rounded-xl border border-sky-500/30 bg-slate-900/70 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-slate-300">
-                Share this explanation:
-              </span>
-              <code className="rounded bg-slate-800 px-2 py-1 text-xs text-slate-100">
-                ?tx={result.txHash.slice(0, 10)}...
-              </code>
+          <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-4 rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-indigo-950/30 to-purple-950/20 p-5 shadow-xl backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/20">
+                <span className="text-xl">🔗</span>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-slate-400">Share this explanation</p>
+                <code className="mt-1 block rounded-lg bg-slate-900/50 px-3 py-1.5 text-xs font-mono text-slate-300">
+                  ?tx={result.txDigest.slice(0, 12)}...
+                </code>
+              </div>
             </div>
             <button
               onClick={handleShare}
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-sky-500 px-4 py-2 text-sm font-medium text-slate-950 shadow-sm transition hover:bg-sky-400"
+              className="group relative inline-flex items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:from-indigo-500 hover:to-purple-500 hover:shadow-xl"
             >
-              {copied ? (
-                <>
-                  <span>✓</span>
-                  <span>Copied!</span>
-                </>
-              ) : (
-                <>
-                  <span>🔗</span>
-                  <span>Copy link</span>
-                </>
-              )}
+              <span className="relative z-10 flex items-center gap-2">
+                {copied ? (
+                  <>
+                    <span className="text-base">✓</span>
+                    <span>Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <span>📋</span>
+                    <span>Copy Link</span>
+                  </>
+                )}
+              </span>
             </button>
           </div>
         )}
 
         <ExplanationSummary data={result} />
+        <TransactionFlow data={result} />
+        <TransactionMetadata data={result} />
         <ActionList
           explanations={result?.actionExplanations ?? null}
           actions={result?.actions ?? null}
         />
         <GasBreakdown summary={result?.summary ?? null} />
 
-        <footer className="mt-2 flex items-center justify-between border-t border-slate-800 pt-4 text-xs text-slate-400">
-          <span>Explain another transaction by pasting a new hash above.</span>
-          <span className="flex items-center gap-1">
-            <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
-            <span>Optimized for Arbitrum demos.</span>
+        <footer className="mt-8 flex flex-col items-center justify-between gap-4 border-t border-slate-800/50 pt-6 text-xs text-slate-500 sm:flex-row">
+          <span className="text-center sm:text-left">
+            Explain another transaction by pasting a new digest above.
+          </span>
+          <span className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-pulse rounded-full bg-indigo-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-indigo-400" />
+            </span>
+            <span className="font-medium">Optimized for Sui</span>
           </span>
         </footer>
       </main>
